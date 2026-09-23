@@ -66,5 +66,4 @@ jobs:
         run: |
           az containerapp job start \
             --name ${{ env.MIGRATION_JOB_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.FULL_IMAGE_NAME }}
+            --resource-group ${{ env.RESOURCE_GROUP }}
