@@ -24,6 +24,7 @@ import { WorkLogModule } from './work-log/work-log.module';
 import { ExportExcelModule } from './export/excel/export-excel.module';
 import { MeetingsIntegrationModule } from './meetings-integration/meetings-integration.module';
 import { LinkManagementModule } from './link-management/link-management.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { LinkManagementModule } from './link-management/link-management.module';
     ExportExcelModule,
     MeetingsIntegrationModule,
     LinkManagementModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
