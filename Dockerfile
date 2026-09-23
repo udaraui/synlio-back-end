@@ -27,7 +27,8 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 
 # Expose port
-EXPOSE 8000
+EXPOSE 4000
+ENV PORT=4000
 
 # Use environment variable NODE_ENV to control behavior
 ENV NODE_ENV=development

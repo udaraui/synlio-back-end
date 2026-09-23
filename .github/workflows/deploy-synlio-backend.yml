@@ -60,6 +60,7 @@ jobs:
           resourceGroup: ${{ env.RESOURCE_GROUP }}
           containerAppName: ${{ env.ACA_NAME }}
           imageToDeploy: ${{ env.FULL_IMAGE_NAME }}
+          targetPort: 4000
 
       - name: Run Database Migrations (Container App Job)
         run: |
