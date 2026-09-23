@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 
-export class CreateNewActivityDto {
+export class CreateActivityDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)

@@ -27,9 +27,9 @@ import {
 import { QueryParam } from '../common/common-db-operation/common-db-operation-query-param.dto';
 import { CommonDbOperationService } from '../common/common-db-operation/common-db-operation.service';
 import {
-  CreateNewActivityDto,
+  CreateActivityDto,
   LinkTaskToActivityDto,
-} from './dto/new-activity.dto';
+} from './dto/activity.dto';
 
 @Controller('pulse')
 export class PulseController {
@@ -315,40 +315,40 @@ export class PulseController {
     );
   }
 
-  // ─── New Activity Endpoints ───────────────────────────────────────────────
+  // ─── Activity Endpoints ───────────────────────────────────────────────
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
-  @Post('/new-activity')
-  async createNewActivity(
-    @Body() dto: CreateNewActivityDto,
+  @Post('/activity')
+  async createActivity(
+    @Body() dto: CreateActivityDto,
     @Request() req: any,
   ) {
     try {
       const userId: number = req.user?.userId ?? req.user?.id;
       const companyId: number = req.activeCompany?.companyId;
-      return await this.pulseService.createNewActivity(
+      return await this.pulseService.createActivity(
         userId,
         companyId,
         dto,
         req.user?.email,
       );
     } catch (e) {
-      console.error('CREATE_NEW_ACTIVITY_ERROR:', e);
+      console.error('CREATE_ACTIVITY_ERROR:', e);
       throw e;
     }
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
-  @Get('/new-activity')
-  getNewActivities(
+  @Get('/activity')
+  getActivities(
     @Request() req: any,
     @Query() query: { startDate?: string; endDate?: string },
   ) {
     const userId: number = req.user?.userId ?? req.user?.id;
     const companyId: number = req.activeCompany?.companyId;
-    return this.pulseService.getNewActivities(
+    return this.pulseService.getActivities(
       userId,
       companyId,
       query.startDate,
@@ -358,7 +358,7 @@ export class PulseController {
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
-  @Patch('/new-activity/:id/link-task')
+  @Patch('/activity/:id/link-task')
   linkTaskToActivity(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: LinkTaskToActivityDto,
@@ -377,7 +377,7 @@ export class PulseController {
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
-  @Patch('/new-activity/:id/unlink-task')
+  @Patch('/activity/:id/unlink-task')
   unlinkTaskFromActivity(
     @Param('id', ParseIntPipe) id: number,
     @Request() req: any,
@@ -394,13 +394,13 @@ export class PulseController {
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
-  @Delete('/new-activity/:id')
-  deleteNewActivity(
+  @Delete('/activity/:id')
+  deleteActivity(
     @Param('id', ParseIntPipe) id: number,
     @Request() req: any,
   ) {
     const userId: number = req.user?.userId ?? req.user?.id;
     const companyId: number = req.activeCompany?.companyId;
-    return this.pulseService.deleteNewActivity(id, userId, companyId);
+    return this.pulseService.deleteActivity(id, userId, companyId);
   }
 }

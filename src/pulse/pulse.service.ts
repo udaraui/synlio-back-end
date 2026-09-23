@@ -16,8 +16,8 @@ import {
   RejectPulseWeekDto,
 } from './dto/pulse-week.dto';
 import { PulseWeek } from './pulse-week.entity';
-import { NewActivity } from './entities/new-activity.entity';
-import { CreateNewActivityDto, LinkTaskToActivityDto } from './dto/new-activity.dto';
+import { Activity } from './entities/activity.entity';
+import { CreateActivityDto, LinkTaskToActivityDto } from './dto/activity.dto';
 import { PulseSnapshotStatus } from '../common/enum/pulse-snapshot-status.enum';
 import { PulseType } from '../common/enum/pulse-type.enum';
 import { PostType } from '../common/enum/post-type.enum';
@@ -39,8 +39,8 @@ export class PulseService {
     private readonly entityManager: EntityManager,
     private readonly emailService: EmailService,
     private readonly serviceBusService: ServiceBusService,
-    @InjectRepository(NewActivity)
-    private readonly newActivityRepository: Repository<NewActivity>,
+    @InjectRepository(Activity)
+    private readonly activityRepository: Repository<Activity>,
   ) { }
 
   async getItemStatusConfig(
@@ -492,7 +492,7 @@ export class PulseService {
               'total_effort_in_range', na."durationMinutes"::numeric / 60.0
           ) AS "change"
 
-      FROM new_activity na
+      FROM activity na
 
       WHERE na."companyId" = $1
         AND na."createdBy" = $2
@@ -1329,13 +1329,13 @@ export class PulseService {
 
   // ─── New Activity Methods ───────────────────────────────────────────────────
 
-  async createNewActivity(
+  async createActivity(
     userId: number,
     companyId: number,
-    dto: CreateNewActivityDto,
+    dto: CreateActivityDto,
     userEmail: string,
-  ): Promise<NewActivity> {
-    const activity = this.newActivityRepository.create({
+  ): Promise<Activity> {
+    const activity = this.activityRepository.create({
       ownerUserId: userId,
       companyId,
       title: dto.title,
@@ -1356,10 +1356,10 @@ export class PulseService {
       activity.durationMinutes = diffMinutes > 0 ? diffMinutes : null;
     }
 
-    return this.newActivityRepository.save(activity);
+    return this.activityRepository.save(activity);
   }
 
-  async getNewActivities(
+  async getActivities(
     userId: number,
     companyId: number,
     startDate?: string,
@@ -1423,8 +1423,8 @@ export class PulseService {
     companyId: number,
     dto: LinkTaskToActivityDto,
     userEmail: string,
-  ): Promise<NewActivity> {
-    const activity = await this.newActivityRepository.findOne({
+  ): Promise<Activity> {
+    const activity = await this.activityRepository.findOne({
       where: { id: activityId, ownerUserId: userId, companyId },
     });
     if (!activity) {
@@ -1442,7 +1442,7 @@ export class PulseService {
 
     activity.taskId = dto.taskId;
     activity.updatedBy = userEmail;
-    return this.newActivityRepository.save(activity);
+    return this.activityRepository.save(activity);
   }
 
   async unlinkTaskFromActivity(
@@ -1450,8 +1450,8 @@ export class PulseService {
     userId: number,
     companyId: number,
     userEmail: string,
-  ): Promise<NewActivity> {
-    const activity = await this.newActivityRepository.findOne({
+  ): Promise<Activity> {
+    const activity = await this.activityRepository.findOne({
       where: { id: activityId, ownerUserId: userId, companyId },
     });
     if (!activity) {
@@ -1460,21 +1460,21 @@ export class PulseService {
 
     activity.taskId = null;
     activity.updatedBy = userEmail;
-    return this.newActivityRepository.save(activity);
+    return this.activityRepository.save(activity);
   }
 
-  async deleteNewActivity(
+  async deleteActivity(
     activityId: number,
     userId: number,
     companyId: number,
   ): Promise<void> {
-    const activity = await this.newActivityRepository.findOne({
+    const activity = await this.activityRepository.findOne({
       where: { id: activityId, ownerUserId: userId, companyId },
     });
     if (!activity) {
       throw new NotFoundException(`Activity with ID ${activityId} not found`);
     }
-    await this.newActivityRepository.remove(activity);
+    await this.activityRepository.remove(activity);
   }
 
   async logTimeOnPulse(

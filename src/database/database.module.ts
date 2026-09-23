@@ -24,7 +24,6 @@ import { Comment } from '../comment/comment/comment.entity';
 import { CommentAttachment } from '../comment/comment-attachment/comment-attachment.entity';
 import { UserConfig } from '../user-management/user/user-config.entity';
 import { TicketType } from '../ticket-management/ticket-type/ticket-type.entity';
-
 import { TicketImpact } from '../ticket-management/ticket-impact/ticket-impact.entity';
 import { TicketQueue } from '../ticket-management/ticket-queue/ticket-queue.entity';
 import { TicketSpace } from '../ticket-management/ticket-space/ticket-space.entity';
@@ -74,7 +73,7 @@ import { MeetingActionState } from '../meetings-integration/entities/meeting-act
 import { Pulse } from '../pulse/pulse.entity';
 import { PulseWeek } from '../pulse/pulse-week.entity';
 import { PostSequence } from '../common/sequence/post-sequence.entity';
-import { NewActivity } from '../pulse/entities/new-activity.entity';
+import { Activity } from '../pulse/entities/activity.entity';
 import { LinkType } from '../link-management/link-type/link-type.entity';
 import { WorkItemLink } from '../link-management/work-item-link/work-item-link.entity';
 import { TicketTemplate } from 'src/ticket-management/ticket-template/ticket-template.entity';
@@ -161,7 +160,7 @@ import { TicketTemplate } from 'src/ticket-management/ticket-template/ticket-tem
           Pulse,
           PulseWeek,
           PostSequence,
-          NewActivity,
+          Activity,
           LinkType,
           WorkItemLink,
         ],

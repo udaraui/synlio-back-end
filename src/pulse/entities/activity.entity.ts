@@ -2,10 +2,10 @@ import { Column, Entity, Index, ManyToOne, JoinColumn } from 'typeorm';
 import { BaseEntity } from '../../common/base/base.entity';
 import { User } from '../../user-management/user/user.entity';
 
-@Entity('new_activity')
-@Index('IDX_new_activity_ownerUserId_companyId', ['ownerUserId', 'companyId'])
-@Index('IDX_new_activity_ownerUserId_startDate', ['ownerUserId', 'startDate'])
-export class NewActivity extends BaseEntity {
+@Entity('activity')
+@Index('IDX_activity_ownerUserId_companyId', ['ownerUserId', 'companyId'])
+@Index('IDX_activity_ownerUserId_startDate', ['ownerUserId', 'startDate'])
+export class Activity extends BaseEntity {
   /** The user this activity belongs to */
   @Column({ nullable: false })
   ownerUserId: number;
