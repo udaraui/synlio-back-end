@@ -796,7 +796,7 @@ export class TicketSpaceService implements OnModuleInit {
           'COMMENT_ADDED',
           'TICKET_DELETED',
         ],
-        channel: 'inapp',
+        channel: 'in_app',
         toAssignee: true,
         toCoAssignees: false,
         toParticipants: true,

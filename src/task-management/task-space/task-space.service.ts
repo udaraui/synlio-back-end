@@ -459,7 +459,7 @@ export class TaskSpaceService implements OnModuleInit {
           'PROGRESS_CHANGED',
           'DATES_CHANGED',
         ],
-        channel: 'inapp',
+        channel: 'in_app',
         toAssignee: true,
         toCoAssignees: true,
         toCreator: true,
