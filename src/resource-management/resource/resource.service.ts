@@ -386,8 +386,13 @@ export class ResourceService {
         // Update base fields
         resource.first_name = data.first_name;
         resource.last_name = data.last_name;
-        // Normalized to keep the resource<->user email join case-insensitive.
-        resource.email = data.email ? normalizeEmail(data.email) : data.email;
+        // Email is immutable after creation — it ties Resource ↔ User ↔ Task/Ticket denormalized columns.
+        const submittedEmail = data.email ? normalizeEmail(data.email) : null;
+        if (submittedEmail && submittedEmail !== resource.email) {
+          throw new BadRequestException(
+            'Email cannot be changed after creation.',
+          );
+        }
         resource.mobile = data.mobile;
         resource.working_hours = data.working_hours;
         resource.company = companyData;
@@ -426,6 +431,7 @@ export class ResourceService {
         }
 
         await transactionalEntityManager.save(Resource, resource);
+
 
         await transactionalEntityManager.delete(ResourceSkill, {
           resource: { id: resource.id },
@@ -565,7 +571,78 @@ export class ResourceService {
     );
 
     await this.invalidateTaskSpaceCachesForResource(updatedResource?.id ?? id);
+
+    // Fire-and-forget: propagate profile pic and/or name change to linked User,
+    // Tasks and Tickets. Runs after the response is already on its way.
+    this.propagateResourceProfileUpdate(
+      updatedResource.id as number,
+      updatedResource.email,
+      {
+        ...(file && updatedResource?.profile_pic
+          ? { profilePicUrl: updatedResource.profile_pic }
+          : {}),
+        firstName: updatedResource.first_name,
+        lastName: updatedResource.last_name,
+      },
+    ).catch((err) =>
+      console.error('[ResourceService] propagateResourceProfileUpdate failed:', err),
+    );
+
     return updatedResource;
+  }
+
+  /**
+   * After a resource is updated, asynchronously sync changed fields to:
+   *   1. The User row with the same email  (profile_picture, first_name, last_name)
+   *   2. Every Task where this resource is the assignee  (assigneeProfilePicUrl, assigneeName)
+   *   3. Every Ticket where this resource is the assignee  (assigneeProfilePicUrl, assigneeName)
+   *
+   * Each field is optional — only supplied fields are written.
+   * Fire-and-forget: never delays the HTTP response.
+   */
+  private async propagateResourceProfileUpdate(
+    resourceId: number,
+    email: string,
+    opts: { profilePicUrl?: string; firstName?: string; lastName?: string },
+  ): Promise<void> {
+    const { profilePicUrl, firstName, lastName } = opts;
+
+    // Build partial update payloads — only include fields that were actually changed
+    const userPatch: Partial<{ profile_picture: string; first_name: string; last_name: string }> = {};
+    const assigneePatch: Partial<{ assigneeProfilePicUrl: string; assigneeName: string }> = {};
+
+    if (profilePicUrl) {
+      userPatch.profile_picture = profilePicUrl;
+      assigneePatch.assigneeProfilePicUrl = profilePicUrl;
+    }
+    if (firstName !== undefined) userPatch.first_name = firstName;
+    if (lastName !== undefined)  userPatch.last_name  = lastName;
+    if (firstName !== undefined || lastName !== undefined) {
+      assigneePatch.assigneeName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
+    }
+
+    const jobs: Promise<any>[] = [];
+
+    if (Object.keys(userPatch).length > 0) {
+      jobs.push(
+        this.entityManager
+          .update(User, { email }, userPatch)
+          .catch((err) => console.error('[propagateResourceProfileUpdate] User update failed:', err)),
+      );
+    }
+
+    if (Object.keys(assigneePatch).length > 0) {
+      jobs.push(
+        this.entityManager
+          .update(Task, { assigneeId: resourceId }, assigneePatch)
+          .catch((err) => console.error('[propagateResourceProfileUpdate] Task update failed:', err)),
+        this.entityManager
+          .update(Ticket, { assigneeId: resourceId }, assigneePatch)
+          .catch((err) => console.error('[propagateResourceProfileUpdate] Ticket update failed:', err)),
+      );
+    }
+
+    await Promise.all(jobs);
   }
 
   async quickEdit(

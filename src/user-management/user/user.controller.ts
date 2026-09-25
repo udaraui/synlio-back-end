@@ -129,11 +129,9 @@ export class UserController {
   @AuthorizationPermissions('16','39')
   @Get('search-by-email/:email')
   async searchByEmail(
-    @Request() req,
     @Param('email') email: string,
   ): Promise<any> {
-    const companyId = req.activeCompany?.companyId;
-    return this.userService.searchByEmail(email, companyId);
+    return this.userService.searchByEmail(email);
   }
 
   @AuthorizationPermissions('16')

@@ -25,6 +25,7 @@ import { ExportExcelModule } from './export/excel/export-excel.module';
 import { MeetingsIntegrationModule } from './meetings-integration/meetings-integration.module';
 import { LinkManagementModule } from './link-management/link-management.module';
 import { ChatModule } from './chat/chat.module';
+import { FilterTemplateModule } from './filter-template/filter-template.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ChatModule } from './chat/chat.module';
     MeetingsIntegrationModule,
     LinkManagementModule,
     ChatModule,
+    FilterTemplateModule,
   ],
   controllers: [AppController],
   providers: [AppService],

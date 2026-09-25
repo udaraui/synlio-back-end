@@ -97,13 +97,25 @@ export class UserService {
         let newCompanyIds = createUserDto.companyIds;
 
         // Security: If not system admin, force the user to be created in the active company
-        if (activeCompanyId !== undefined && activeCompanyId !== 0) {
+        if(activeCompanyId && activeCompanyId !== 0) {
           newCompanyIds = [activeCompanyId];
         }
 
         if (Array.isArray(newCompanyIds)) {
           const existingCompanyIds =
             savedUser.companies?.map((c) => c.id) || [];
+
+            
+          if (isExistingUser) {
+            const isAlreadyInCompany = newCompanyIds.some((id) =>
+              existingCompanyIds.includes(id),
+            );
+            if (isAlreadyInCompany) {
+              throw new BadRequestException(
+                'This user is already a member of this company.',
+              );
+            }
+          }
 
           // Merge unique companies
           const combinedCompanies = [...(savedUser.companies || [])];
@@ -141,7 +153,7 @@ export class UserService {
         // Handle Roles
         if (Array.isArray(createUserDto.userCompanyRoles)) {
           // Security: If not system admin, only allow roles for the active company
-          if (activeCompanyId !== undefined && activeCompanyId !== 0) {
+         if (activeCompanyId && activeCompanyId !== 0) {
             createUserDto.userCompanyRoles =
               createUserDto.userCompanyRoles.filter(
                 (ucr: any) => ucr.companyId === activeCompanyId,
@@ -283,20 +295,10 @@ export class UserService {
     existingUser.last_name = userData.last_name;
     if (userData.email) {
       const normalizedEmail = normalizeEmail(userData.email);
-
-      // Guard against editing a user onto an address another account owns.
+      // Email is immutable after creation — reject any attempt to change it.
       if (normalizedEmail !== existingUser.email) {
-        const emailOwner = await this.entityManager.findOne(User, {
-          where: { email: normalizedEmail },
-        });
-        if (emailOwner && emailOwner.id !== existingUser.id) {
-          throw new BadRequestException(
-            'Another account already uses this email address',
-          );
-        }
+        throw new BadRequestException('Email cannot be changed after creation.');
       }
-
-      existingUser.email = normalizedEmail;
     }
     existingUser.isActive = userData.isActive;
     existingUser.mobile_number = userData.phone_number;
@@ -403,6 +405,21 @@ export class UserService {
     );
     await this.syncUserCompaniesCache(savedUser.id as number);
 
+    // Fire-and-forget: propagate name and/or profile pic to linked Resource,
+    // Tasks and Tickets. Runs after the response is already on its way.
+    this.propagateUserProfileUpdate(
+      existingUser.email,
+      {
+        ...(file && existingUser.profile_picture
+          ? { profilePicUrl: existingUser.profile_picture }
+          : {}),
+        firstName: existingUser.first_name,
+        lastName: existingUser.last_name,
+      },
+    ).catch((err) =>
+      console.error('[UserService] propagateUserProfileUpdate failed:', err),
+    );
+
     // Return the user with all relations loaded
     return await this.entityManager.findOne(User, {
       where: { id: savedUser.id },
@@ -414,6 +431,75 @@ export class UserService {
         'userCompanyRoles.company',
       ],
     });
+  }
+
+  /**
+   * After a user is updated, asynchronously sync changed fields to:
+   *   1. All Resource rows with the same email  (profile_pic, first_name, last_name)
+   *   2. Every Task where those resources are the assignee  (assigneeProfilePicUrl, assigneeName)
+   *   3. Every Ticket where those resources are the assignee  (assigneeProfilePicUrl, assigneeName)
+   *
+   * Each field is optional — only supplied fields are written.
+   * Fire-and-forget: never delays the HTTP response.
+   */
+  private async propagateUserProfileUpdate(
+    email: string,
+    opts: { profilePicUrl?: string; firstName?: string; lastName?: string },
+  ): Promise<void> {
+    const { profilePicUrl, firstName, lastName } = opts;
+
+    // Build partial update payloads — only include fields that actually changed
+    const resourcePatch: Partial<{ profile_pic: string; first_name: string; last_name: string }> = {};
+    const assigneePatch: Partial<{ assigneeProfilePicUrl: string; assigneeName: string }> = {};
+
+    if (profilePicUrl) {
+      resourcePatch.profile_pic = profilePicUrl;
+      assigneePatch.assigneeProfilePicUrl = profilePicUrl;
+    }
+    if (firstName !== undefined) resourcePatch.first_name = firstName;
+    if (lastName !== undefined)  resourcePatch.last_name  = lastName;
+    if (firstName !== undefined || lastName !== undefined) {
+      assigneePatch.assigneeName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
+    }
+
+    // Find matching resource IDs (a user can be a resource in multiple companies)
+    const resources = await this.entityManager.find(Resource, {
+      where: { email },
+      select: ['id'],
+    });
+    const resourceIds = resources.map((r) => r.id as number).filter(Boolean);
+
+    const jobs: Promise<any>[] = [];
+
+    if (Object.keys(resourcePatch).length > 0) {
+      jobs.push(
+        this.entityManager
+          .update(Resource, { email }, resourcePatch)
+          .catch((err) => console.error('[propagateUserProfileUpdate] Resource update failed:', err)),
+      );
+    }
+
+    if (resourceIds.length > 0 && Object.keys(assigneePatch).length > 0) {
+      jobs.push(
+        this.entityManager
+          .createQueryBuilder()
+          .update(Task)
+          .set(assigneePatch)
+          .where('assigneeId IN (:...ids)', { ids: resourceIds })
+          .execute()
+          .catch((err) => console.error('[propagateUserProfileUpdate] Task update failed:', err)),
+
+        this.entityManager
+          .createQueryBuilder()
+          .update(Ticket)
+          .set(assigneePatch)
+          .where('assigneeId IN (:...ids)', { ids: resourceIds })
+          .execute()
+          .catch((err) => console.error('[propagateUserProfileUpdate] Ticket update failed:', err)),
+      );
+    }
+
+    await Promise.all(jobs);
   }
 
   async updateRefreshToken(userId: number, refreshToken: string | undefined) {
@@ -432,15 +518,9 @@ export class UserService {
     return user.hashedRefreshToken;
   }
 
-  async searchByEmail(email: string, companyId?: number) {
-    const where: any = { email: normalizeEmail(email) };
-
-    if (companyId && companyId !== 0) {
-      where.companies = { id: companyId };
-    }
-
+  async searchByEmail(email: string) {
     return await this.entityManager.findOne(User, {
-      where,
+      where: { email: normalizeEmail(email) },
       relations: [
         'companies',
         'divisions',
