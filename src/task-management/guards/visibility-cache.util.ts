@@ -15,7 +15,7 @@ export async function getOrBuildVisibilityCache(
   companyId: number,
   logContext: 'task' | 'task space'
 ): Promise<Record<number, number[]>> {
-  console.time(`VisibilityCache Build (${logContext})`);
+  // console.time(`VisibilityCache Build (${logContext})`);
   const cacheKey = `user_accessible_task_spaces:userId_${email.toLowerCase()}`;
   const cachedData = await redisService.hget(cacheKey, `companyId_${companyId}`);
 
@@ -23,7 +23,7 @@ export async function getOrBuildVisibilityCache(
     const parsed = JSON.parse(cachedData);
     if (!Array.isArray(parsed)) {
       console.log(`getting ${logContext} data from cache for user: ${email}, company :${companyId}`);
-      console.timeEnd(`VisibilityCache Build (${logContext})`);
+      // console.timeEnd(`VisibilityCache Build (${logContext})`);
       return parsed;
     }
     // If it's an array, it's the old cache format. Ignore and rebuild.
@@ -93,6 +93,6 @@ export async function getOrBuildVisibilityCache(
   // Save to Redis
   await redisService.hset(cacheKey, `companyId_${companyId}`, JSON.stringify(visibilityDict));
 
-  console.timeEnd(`VisibilityCache Build (${logContext})`);
+  // console.timeEnd(`VisibilityCache Build (${logContext})`);
   return visibilityDict;
 }

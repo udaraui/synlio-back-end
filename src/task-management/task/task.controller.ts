@@ -51,11 +51,11 @@ export class TmTaskController {
       });
     }
 
-    console.time('Task Search Query Execution');
+    // console.time('Task Search Query Execution');
     const result = await this.commonDbOperationService.search('tm_task', {
       ...item,
     });
-    console.timeEnd('Task Search Query Execution');
+    // console.timeEnd('Task Search Query Execution');
     return result;
   }
 
