@@ -19,7 +19,6 @@ import {
   CreateCompanyDto,
   ResponseCompanyDto,
   UpdateCompanyDto,
-  UpdateNotificationEmailDto,
   UpdateMeetingProvidersDto,
 } from './dto/company.dto';
 import { JwtAuthGuard } from '../../auth/jwt-auth.gurard';
@@ -148,28 +147,6 @@ export class CompanyController {
     return this.companyService.deleteCompany(id, req.user, activeCompanyId);
   }
 
-  @AuthorizationPermissions('108')
-  @Get(':id/notification-email')
-  getNotificationEmailConfig(@Param('id') id: number, @Req() req: any) {
-    const activeCompanyId = req.activeCompany?.companyId;
-    return this.companyService.getNotificationEmailConfig(id, activeCompanyId);
-  }
-
-  @AuthorizationPermissions('108')
-  @Patch(':id/notification-email')
-  updateNotificationEmail(
-    @Param('id') id: number,
-    @Body() dto: UpdateNotificationEmailDto,
-    @Request() req,
-  ) {
-    const activeCompanyId = req.activeCompany?.companyId;
-    return this.companyService.updateNotificationEmail(
-      id,
-      dto,
-      req.user,
-      activeCompanyId,
-    );
-  }
 
   @Get(':id/meeting-providers')
   async getMeetingProviders(

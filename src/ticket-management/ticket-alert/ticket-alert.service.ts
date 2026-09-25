@@ -1154,23 +1154,9 @@ export class TicketAlertService {
    * caller is responsible for logging the warning.
    */
   private async companyHasSmtpConfig(ticketSpaceId: number): Promise<boolean> {
-    const space = await this.entityManager.findOne(TicketSpace, {
-      where: { id: ticketSpaceId },
-      select: ['id', 'companyId'],
-    });
-    if (!space?.companyId) return false;
-
-    const company = await this.entityManager
-      .createQueryBuilder(Company, 'c')
-      .select(['c.id', 'c.notificationEmail', 'c.emailProvider'])
-      .addSelect('c.notificationEmailPassword')
-      .where('c.id = :id', { id: space.companyId })
-      .getOne();
-
     return !!(
-      company?.notificationEmail &&
-      company?.emailProvider &&
-      company?.notificationEmailPassword
+      process.env.AZURE_COMMUNICATION_CONNECTION_STRING &&
+      process.env.AZURE_COMMUNICATION_SENDER_EMAIL
     );
   }
 }

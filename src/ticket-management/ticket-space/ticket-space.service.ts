@@ -96,7 +96,6 @@ export class TicketSpaceService implements OnModuleInit {
     if (!ticketSpace)
       throw new NotFoundException(`Ticket space with ID ${spaceId} not found`);
 
-    //
     // const statusesWithSequence = await this.entityManager.query(
     //   `
     //   SELECT s.*, tss.sequence
@@ -797,7 +796,7 @@ export class TicketSpaceService implements OnModuleInit {
           'COMMENT_ADDED',
           'TICKET_DELETED',
         ],
-        channel: 'both',
+        channel: 'inapp',
         toAssignee: true,
         toCoAssignees: false,
         toParticipants: true,

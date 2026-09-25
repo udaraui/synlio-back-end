@@ -1087,10 +1087,6 @@ export class PulseService {
       select: ['id', 'email'],
     });
 
-    const company = await this.entityManager.findOne(Company, {
-      where: { id: activeCompanyId },
-      select: ['notificationEmail'],
-    });
 
     const actorUser = await this.entityManager.findOne(User, {
       where: { email: user.email },
@@ -1141,7 +1137,7 @@ export class PulseService {
         companyId: activeCompanyId,
         userId: recipientUser?.id,
         username: recipientUser?.email,
-        from: company?.notificationEmail || user.email,
+        from: process.env.AZURE_COMMUNICATION_SENDER_EMAIL || user.email,
       }, user);
     }
 

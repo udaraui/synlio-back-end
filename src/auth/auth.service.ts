@@ -16,6 +16,7 @@ import { UserService } from '../user-management/user/user.service';
 import { UserPrivilegeView } from '../user-management/user/user-privilege-view/user-privilege.entity';
 import { RedisService } from '../redis/redis.service';
 import { SYNLIO_LOGO_DATA_URI } from '../common/email/email-template.helper';
+import { EmailClient } from '@azure/communication-email';
 
 @Injectable()
 export class AuthService {
@@ -243,9 +244,13 @@ export class AuthService {
     resetLink: string,
     firstName: string,
   ): Promise<void> {
-    const mailServiceUrl =
-      'https://mail-service-c6gcbxeye0dqbwg5.southeastasia-01.azurewebsites.net/mail/queue';
-    const apiKey = process.env.MAIL_API_KEY || '';
+    const connectionString = process.env.AZURE_COMMUNICATION_CONNECTION_STRING;
+    const senderEmail = process.env.AZURE_COMMUNICATION_SENDER_EMAIL;
+
+    if (!connectionString || !senderEmail) {
+      throw new Error('Azure Communication Services credentials are not configured');
+    }
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -330,27 +335,22 @@ export class AuthService {
       </html>
     `;
 
-    const body = JSON.stringify({
-      to: toEmail,
-      cc: '',
-      subject: 'Reset Your Synlio Password',
-      text: `Hi ${firstName}, reset your Synlio password here (expires in 1 hour): ${resetLink}`,
-      html,
-    });
+    const text = `Hi ${firstName}, reset your Synlio password here (expires in 1 hour): ${resetLink}`;
 
-    const response = await fetch(mailServiceUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+    const emailClient = new EmailClient(connectionString);
+    const poller = await emailClient.beginSend({
+      senderAddress: senderEmail,
+      content: {
+        subject: 'Reset Your Synlio Password',
+        html,
+        plainText: text,
       },
-      body,
+      recipients: {
+        to: [{ address: toEmail }],
+      },
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Mail service responded ${response.status}: ${text}`);
-    }
+    await poller.pollUntilDone();
 
     this.logger.log(`Password reset email sent to ${toEmail}`);
   }

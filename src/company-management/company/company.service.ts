@@ -9,7 +9,6 @@ import { Company } from './company.entity';
 import { EntityManager, In } from 'typeorm';
 import { ResponseCompanyDto } from './dto/company.dto';
 import { ActiveStatus } from '../../common/enum/status.enum';
-import { EmailProvider } from '../../common/enum/email-provider.enum';
 import { UserCompanyView } from '../../user-management/user/user-company-view/user-company.entity';
 import { User } from '../../user-management/user/user.entity';
 import { uploadToAzureCompanyLogo } from '../../common/azure/azure-image-upload';
@@ -193,70 +192,7 @@ export class CompanyService {
   //     .getMany();
   // }
 
-  async getNotificationEmailConfig(
-    id: number,
-    activeCompanyId?: number,
-  ): Promise<{
-    notificationEmail: string;
-    emailProvider: string;
-    notificationEmailPassword: string;
-  }> {
-    let query = this.entityManager
-      .createQueryBuilder(Company, 'c')
-      .select(['c.id', 'c.notificationEmail', 'c.emailProvider'])
-      .addSelect('c.notificationEmailPassword')
-      .where('c.id = :id', { id });
 
-    if (activeCompanyId && activeCompanyId !== 0) {
-      query = query.andWhere('c.id = :activeCompanyId', { activeCompanyId });
-    }
-
-    const company = await query.getOne();
-    if (!company) {
-      throw new NotFoundException(`Company with id ${id} not found`);
-    }
-    return {
-      notificationEmail: company.notificationEmail ?? '',
-      emailProvider: company.emailProvider ?? '',
-      notificationEmailPassword: company.notificationEmailPassword ?? '',
-    };
-  }
-
-  async updateNotificationEmail(
-    id: number,
-    data: {
-      notificationEmail: string;
-      emailProvider: string;
-      notificationEmailPassword?: string;
-    },
-    authUser: any,
-    activeCompanyId?: number,
-  ): Promise<Company> {
-    const where: any = { id };
-    if (activeCompanyId && activeCompanyId !== 0) {
-      where.id = activeCompanyId;
-    }
-
-    const existing = await this.entityManager.findOne(Company, { where });
-    if (!existing) {
-      throw new NotFoundException(`Company with id ${id} not found`);
-    }
-
-    const updatePayload: Partial<Company> & { updatedBy: string } = {
-      notificationEmail: data.notificationEmail,
-      emailProvider:
-        (data.emailProvider as EmailProvider) ?? EmailProvider.MAIL_SERVICE,
-      updatedBy: authUser.email,
-    };
-    if (data.notificationEmailPassword) {
-      updatePayload.notificationEmailPassword = data.notificationEmailPassword;
-    }
-    await this.entityManager.update(Company, where, updatePayload);
-    const updated = await this.entityManager.findOne(Company, {
-      where: { id },
-    });
-    return updated!;
-  }
 
   async updateMeetingProviders(
     id: number,

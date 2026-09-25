@@ -8,7 +8,6 @@ import {
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ActiveStatus } from '../../../common/enum/status.enum';
-import { EmailProvider } from '../../../common/enum/email-provider.enum';
 import { User } from '../../../user-management/user/user.entity';
 import { BaseDto } from '../../../common/base/base.dto';
 import { MeetingProvider } from '../../../meetings-integration/entities/meeting-integration-connection.entity';
@@ -62,31 +61,6 @@ export class CreateCompanyDto {
   @IsOptional()
   weekEndDay?: number;
 
-  @ApiProperty({
-    description: 'Notification sender email address',
-    example: 'noreply@company.com',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  notificationEmail?: string;
-
-  @ApiProperty({
-    description: 'SMTP / mail provider',
-    enum: EmailProvider,
-    required: false,
-  })
-  @IsEnum(EmailProvider)
-  @IsOptional()
-  emailProvider?: EmailProvider;
-
-  @ApiProperty({
-    description: 'App password or API key for the mail provider',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  notificationEmailPassword?: string;
 
   @ApiProperty({
     description: 'The users of the company',
@@ -147,31 +121,6 @@ export class UpdateCompanyDto {
   @IsNotEmpty()
   isActive: ActiveStatus;
 
-  @ApiProperty({
-    description: 'Notification sender email address',
-    example: 'noreply@company.com',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  notificationEmail?: string;
-
-  @ApiProperty({
-    description: 'SMTP / mail provider',
-    enum: EmailProvider,
-    required: false,
-  })
-  @IsEnum(EmailProvider)
-  @IsOptional()
-  emailProvider?: EmailProvider;
-
-  @ApiProperty({
-    description: 'App password or API key for the mail provider',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  notificationEmailPassword?: string;
 
   @ApiProperty({
     description: 'The users of the company',
@@ -182,30 +131,6 @@ export class UpdateCompanyDto {
   users: User[];
 }
 
-export class UpdateNotificationEmailDto {
-  @ApiProperty({
-    description: 'Notification sender email address',
-    example: 'noreply@company.com',
-  })
-  @IsString()
-  @IsNotEmpty()
-  notificationEmail: string;
-
-  @ApiProperty({
-    description: 'SMTP / mail provider',
-    enum: EmailProvider,
-  })
-  @IsEnum(EmailProvider)
-  @IsNotEmpty()
-  emailProvider: EmailProvider;
-
-  @ApiProperty({
-    description: 'App password or API key for the mail provider',
-  })
-  @IsString()
-  @IsNotEmpty()
-  notificationEmailPassword: string;
-}
 
 export class UpdateMeetingProvidersDto {
   @ApiProperty({
@@ -259,23 +184,6 @@ export class ResponseCompanyDto extends BaseDto {
   @IsNotEmpty()
   isActive: ActiveStatus;
 
-  @ApiProperty({
-    description: 'Notification sender email address',
-    example: 'noreply@company.com',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  notificationEmail?: string;
-
-  @ApiProperty({
-    description: 'SMTP / mail provider',
-    enum: EmailProvider,
-    required: false,
-  })
-  @IsEnum(EmailProvider)
-  @IsOptional()
-  emailProvider?: EmailProvider;
 
   @ApiProperty({
     description: 'The users of the company',
