@@ -5,8 +5,9 @@ import axios from 'axios';
 export class ChatService {
   async processChat(message: string): Promise<any> {
     try {
+      const aiServiceUrl = process.env.AI_SERVICE_URL;
       // Forward the request to the Python LangGraph backend as a stream
-      const response = await axios.post('http://localhost:8000/chat', { message }, {
+      const response = await axios.post(`${aiServiceUrl}/chat`, { message }, {
         responseType: 'stream',
       });
       return response.data;
