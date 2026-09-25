@@ -3,6 +3,6 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class AppService {
   getHello(): string {
-    return 'IT2 Backend is running!';
+    return 'Synlio server is up!';
   }
 }
