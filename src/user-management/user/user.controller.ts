@@ -17,7 +17,7 @@ import {
   Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ParseIntPipe } from '@nestjs/common';
+import { ParseIntPipe, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { UserService } from './user.service';
@@ -48,7 +48,15 @@ export class UserController {
   async createUser(
     @Request() req,
     @Body() createUserDto: CreateUserDto,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+        ],
+        fileIsRequired: false,
+      }),
+    ) file: Express.Multer.File,
   ): Promise<ResponseUserDto> {
     if (file && file.filename) {
       createUserDto.profile_picture = file.filename;
@@ -167,7 +175,15 @@ export class UserController {
     @Param('id', ParseIntPipe) id: number,
     @Body() user: any,
     @Request() req,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+        ],
+        fileIsRequired: false,
+      }),
+    ) file: Express.Multer.File,
   ): Promise<any> {
     // Handle file upload
 

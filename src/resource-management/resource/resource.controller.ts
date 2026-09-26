@@ -13,6 +13,9 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  FileTypeValidator,
 } from '@nestjs/common';
 import { ResourceService } from './resource.service';
 import { CreateResourceDto } from './dto/resource.dto';
@@ -76,7 +79,15 @@ export class ResourceController {
   createResource(
     @Body() createResourceDto: CreateResourceDto,
     @Req() req: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+        ],
+        fileIsRequired: false,
+      }),
+    ) file: Express.Multer.File,
   ) {
     const activeCompanyId = req.activeCompany?.companyId;
 
@@ -95,7 +106,15 @@ export class ResourceController {
     @Param('id') id: number,
     @Body() body: any,
     @Req() req: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: '.(png|jpeg|jpg)' }),
+        ],
+        fileIsRequired: false,
+      }),
+    ) file: Express.Multer.File,
   ) {
     const activeCompanyId = req.activeCompany?.companyId;
 

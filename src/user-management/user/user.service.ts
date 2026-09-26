@@ -624,6 +624,7 @@ export class UserService {
 
     const user = await this.entityManager.findOne(User, {
       where,
+      relationLoadStrategy: 'query',
       relations: [
         'companies',
         'divisions',
