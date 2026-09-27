@@ -411,7 +411,6 @@ export class TaskSpaceService implements OnModuleInit {
 
     // ── Non-fatal: auto-add creator as resource ───────────────────────────
     // Auto-add the creating user as a resource (matched by email) so they appear
-    // in task_space_resources and are shown task spaces when canViewAllSpaces = false.
     try {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const creatorResource = await this.entityManager.findOne(Resource, {

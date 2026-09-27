@@ -1859,7 +1859,6 @@ export class TicketService {
   async getMyTicketSpaces(
     userId: number,
     activeCompanyId?: number,
-    viewAll = false,
   ): Promise<
     {
       id: number;
@@ -1882,37 +1881,22 @@ export class TicketService {
       totalcount: string;
     }[];
 
-    if (viewAll) {
-      // Admin/manager path – return every space for the company
-      rows = await this.entityManager.query(
-        `SELECT ts.id, ts.name, ts.prefix,
-                COUNT(CASE WHEN s.base = 'Finished' THEN t.id END) AS completedcount,
-                COUNT(t.id) AS totalcount
-         FROM ticket_space ts
-         LEFT JOIN ticket t ON t."ticketSpaceId" = ts.id
-         LEFT JOIN status s ON s.id = t."statusId"
-         WHERE 1=1 ${companyFilter}
-         GROUP BY ts.id, ts.name, ts.prefix
-         ORDER BY ts.id ASC`,
-      );
-    } else {
-      // Member-only path – only spaces where the user has a ticket_space_member entry
-      rows = await this.entityManager.query(
-        `SELECT ts.id, ts.name, ts.prefix,
-                COUNT(CASE WHEN s.base = 'Finished' THEN t.id END) AS completedcount,
-                COUNT(t.id) AS totalcount
-         FROM ticket_space ts
-         INNER JOIN ticket_space_member tp
-           ON tp."ticketSpaceId" = ts.id
-           AND tp."userId" = $1
-         LEFT JOIN ticket t ON t."ticketSpaceId" = ts.id
-         LEFT JOIN status s ON s.id = t."statusId"
-         WHERE 1=1 ${companyFilter}
-         GROUP BY ts.id, ts.name, ts.prefix
-         ORDER BY ts.id ASC`,
-        [userId],
-      );
-    }
+    // Member-only path – only spaces where the user has a ticket_space_member entry
+    rows = await this.entityManager.query(
+      `SELECT ts.id, ts.name, ts.prefix,
+              COUNT(CASE WHEN s.base = 'Finished' THEN t.id END) AS completedcount,
+              COUNT(t.id) AS totalcount
+       FROM ticket_space ts
+       INNER JOIN ticket_space_member tp
+         ON tp."ticketSpaceId" = ts.id
+         AND tp."userId" = $1
+       LEFT JOIN ticket t ON t."ticketSpaceId" = ts.id
+       LEFT JOIN status s ON s.id = t."statusId"
+       WHERE 1=1 ${companyFilter}
+       GROUP BY ts.id, ts.name, ts.prefix
+       ORDER BY ts.id ASC`,
+      [userId],
+    );
 
     return rows.map((r) => ({
       id: Number(r.id),

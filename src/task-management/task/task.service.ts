@@ -2704,7 +2704,6 @@ export class TmTaskService {
   async getMyTaskSpaces(
     email: string,
     activeCompanyId?: number,
-    viewAll = false,
   ): Promise<
     {
       id: number;
@@ -2733,65 +2732,39 @@ export class TmTaskService {
       rootlevelcolor: string | null;
     }[];
 
-    if (viewAll) {
-      // Admin/manager path – return every active space for the company
-      rows = await this.entityManager.query(
-        `SELECT ts.id, ts.name, ts.prefix,
-                COALESCE(AVG(t."progressPercentage"), 0) AS avgprogress,
-                COUNT(t.id) AS taskcount,
-                hl.name  AS rootlevelname,
-                hl.icon  AS rootlevelicon,
-                hl.color AS rootlevelcolor
-         FROM task_space ts
-         LEFT JOIN tm_task t
-           ON t."taskSpaceId" = ts.id
-           AND t."parentTaskId" IS NULL
-         LEFT JOIN LATERAL (
-           SELECT name, icon, color
-           FROM task_space_hierarchy_level_config
-           WHERE "taskSpaceId" = ts.id
-           ORDER BY sequence ASC
-           LIMIT 1
-         ) hl ON true
-         WHERE ts."isActive" = true ${companyFilter}
-         GROUP BY ts.id, ts.name, ts.prefix, hl.name, hl.icon, hl.color
-         ORDER BY ts.id ASC`,
-      );
-    } else {
-      // Member-only path – only spaces where the user is a resource
-      const resourceId = await this.getResourceIdByEmail(
-        email,
-        activeCompanyId,
-      );
-      if (!resourceId) return [];
+    // Member-only path – only spaces where the user is a resource
+    const resourceId = await this.getResourceIdByEmail(
+      email,
+      activeCompanyId,
+    );
+    if (!resourceId) return [];
 
-      rows = await this.entityManager.query(
-        `SELECT ts.id, ts.name, ts.prefix,
-                COALESCE(AVG(t."progressPercentage"), 0) AS avgprogress,
-                COUNT(t.id) AS taskcount,
-                hl.name  AS rootlevelname,
-                hl.icon  AS rootlevelicon,
-                hl.color AS rootlevelcolor
-         FROM task_space ts
-         INNER JOIN task_space_resources tsr
-           ON tsr."taskSpaceId" = ts.id
-           AND tsr."resourceId" = $1
-         LEFT JOIN tm_task t
-           ON t."taskSpaceId" = ts.id
-           AND t."parentTaskId" IS NULL
-         LEFT JOIN LATERAL (
-           SELECT name, icon, color
-           FROM task_space_hierarchy_level_config
-           WHERE "taskSpaceId" = ts.id
-           ORDER BY sequence ASC
-           LIMIT 1
-         ) hl ON true
-         WHERE ts."isActive" = true ${companyFilter}
-         GROUP BY ts.id, ts.name, ts.prefix, hl.name, hl.icon, hl.color
-         ORDER BY ts.id ASC`,
-        [resourceId],
-      );
-    }
+    rows = await this.entityManager.query(
+      `SELECT ts.id, ts.name, ts.prefix,
+              COALESCE(AVG(t."progressPercentage"), 0) AS avgprogress,
+              COUNT(t.id) AS taskcount,
+              hl.name  AS rootlevelname,
+              hl.icon  AS rootlevelicon,
+              hl.color AS rootlevelcolor
+       FROM task_space ts
+       INNER JOIN task_space_resources tsr
+         ON tsr."taskSpaceId" = ts.id
+         AND tsr."resourceId" = $1
+       LEFT JOIN tm_task t
+         ON t."taskSpaceId" = ts.id
+         AND t."parentTaskId" IS NULL
+       LEFT JOIN LATERAL (
+         SELECT name, icon, color
+         FROM task_space_hierarchy_level_config
+         WHERE "taskSpaceId" = ts.id
+         ORDER BY sequence ASC
+         LIMIT 1
+       ) hl ON true
+       WHERE ts."isActive" = true ${companyFilter}
+       GROUP BY ts.id, ts.name, ts.prefix, hl.name, hl.icon, hl.color
+       ORDER BY ts.id ASC`,
+      [resourceId],
+    );
 
     return rows.map((r) => ({
       id: Number(r.id),

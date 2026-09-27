@@ -91,22 +91,6 @@ export class WorkItemLinkService {
   }
 
   async checkAccess(type: PostType, id: number, authUser: any) {
-    const reqPrivilegeId = type === PostType.TSK ? 106 : 105;
-    const privilegesArray = Array.isArray(authUser?.privileges)
-      ? authUser.privileges
-      : [];
-    const hasViewAll =
-      privilegesArray.some(
-        (p: any) =>
-          Array.isArray(p?.privilegeIds) &&
-          p.privilegeIds.includes(reqPrivilegeId),
-      ) ||
-      (Array.isArray(authUser?.privilegeIds) &&
-        authUser.privilegeIds.includes(reqPrivilegeId));
-
-    if (hasViewAll) {
-      return { hasAccess: true };
-    }
 
     const item = await this.resolveItem(type, id);
     const userId = authUser?.userId ?? authUser?.id;

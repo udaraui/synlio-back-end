@@ -226,11 +226,9 @@ export class DashboardController {
           : p.companyId === activeCompanyId,
     );
     const privilegeIds: number[] = companyPrivileges?.privilegeIds ?? [];
-    const viewAll = privilegeIds.includes(105);
     return this.taskService.getMyTaskSpaces(
       req.user.email as string,
       activeCompanyId,
-      viewAll,
     );
   }
 
@@ -254,11 +252,9 @@ export class DashboardController {
           : p.companyId === activeCompanyId,
     );
     const privilegeIds: number[] = companyPrivileges?.privilegeIds ?? [];
-    const viewAll = privilegeIds.includes(106);
     return this.ticketService.getMyTicketSpaces(
       req.user.userId as number,
       activeCompanyId,
-      viewAll,
     );
   }
 }
