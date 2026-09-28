@@ -1010,7 +1010,7 @@ export class TaskAlertService {
         sendInApp = resolved.sendInApp;
       }
 
-      if (toEmails.length === 0) {
+      if (toEmails.length === 0 && notifUserIds.length === 0) {
         this.logger.warn(
           `TaskAlertService: no TO recipients resolved for [${ctx.event}] task ${ctx.task.id} – skipping`,
         );

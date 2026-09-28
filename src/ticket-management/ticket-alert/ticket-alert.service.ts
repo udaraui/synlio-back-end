@@ -1029,7 +1029,7 @@ export class TicketAlertService {
         sendInApp = resolved.sendInApp;
       }
 
-      if (toEmails.length === 0) {
+      if (toEmails.length === 0 && notifUserIds.length === 0) {
         this.logger.warn(
           `TicketAlertService: no TO recipients resolved for [${ctx.event}] ticket ${ctx.ticket.id} – skipping`,
         );

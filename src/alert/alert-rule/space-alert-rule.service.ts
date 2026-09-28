@@ -1,4 +1,4 @@
-﻿import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
 import { SpaceAlertRule } from './space-alert-rule.entity';
@@ -221,129 +221,107 @@ export class AlertRuleService {
       };
     }
 
-    // 3. Merge channels (union)
-    const sendEmail = matching.some(
-      (r) => r.channel === 'email' || r.channel === 'both',
-    );
-    const sendInApp = matching.some(
-      (r) => r.channel === 'in_app' || r.channel === 'both',
-    );
+    // 3. Resolve per-channel recipients
+    const emailToSet = new Set<string>();
+    const emailCcSet = new Set<string>();
+    const inAppToUserMap = new Map<number, string>();
+    const inAppCcUserMap = new Map<number, string>();
 
-    // 4. Merge TO flags (union across all matching rules)
-    const toFlags = {
-      assignee: matching.some((r) => r.toAssignee),
-      coAssignees: matching.some((r) => r.toCoAssignees),
-      participants: matching.some((r) => r.toParticipants),
-      creator: matching.some((r) => r.toCreator),
-      actor: matching.some((r) => r.toActor),
-      additionalIds: [
-        ...new Set(matching.flatMap((r) => r.toAdditionalUserIds ?? [])),
-      ],
-    };
-
-    // 5. Merge CC flags
-    const ccFlags = {
-      assignee: matching.some((r) => r.ccAssignee),
-      coAssignees: matching.some((r) => r.ccCoAssignees),
-      participants: matching.some((r) => r.ccParticipants),
-      creator: matching.some((r) => r.ccCreator),
-      actor: matching.some((r) => r.ccActor),
-      additionalIds: [
-        ...new Set(matching.flatMap((r) => r.ccAdditionalUserIds ?? [])),
-      ],
-    };
-
-    // 6. Resolve flags → email sets + userId maps
-    const toEmailSet = new Set<string>();
-    const toUserMap = new Map<number, string>(); // userId → email
-
-    const addTo = (
-      email: string | null | undefined,
-      userId: number | null | undefined,
-    ) => {
-      if (email) {
-        toEmailSet.add(email);
-        if (userId) toUserMap.set(userId, email);
-      }
-    };
-
-    if (toFlags.assignee) addTo(ctx.assigneeEmail, ctx.assigneeUserId);
-    if (toFlags.coAssignees) {
-      ctx.coAssigneeEmails.forEach((e, i) =>
-        addTo(e, ctx.coAssigneeUserIds[i]),
-      );
-      ctx.memberEmails.forEach((e, i) => addTo(e, ctx.memberUserIds[i]));
+    // Pre-fetch all additional users to avoid N+1 queries
+    const additionalUserIds = new Set<number>();
+    for (const r of matching) {
+      r.toAdditionalUserIds?.forEach((id) => {
+        if (id != null) additionalUserIds.add(id);
+      });
+      r.ccAdditionalUserIds?.forEach((id) => {
+        if (id != null) additionalUserIds.add(id);
+      });
     }
-    if (toFlags.participants) {
-      ctx.participantEmails.forEach((e, i) =>
-        addTo(e, ctx.participantUserIds[i]),
-      );
-    }
-    if (toFlags.creator) addTo(ctx.createdByEmail, ctx.createdByUserId);
-    if (toFlags.actor) addTo(ctx.actorEmail, ctx.actorUserId);
 
-    for (const uid of toFlags.additionalIds) {
-      const user = await this.entityManager.findOne(User, {
-        where: { id: uid },
+    const additionalUsersMap = new Map<number, { id: number; email: string }>();
+    if (additionalUserIds.size > 0) {
+      const { In } = await import('typeorm');
+      const users = await this.entityManager.find(User, {
+        where: { id: In([...additionalUserIds]) },
         select: ['id', 'email'],
       });
-      if (user?.email) addTo(user.email, user.id);
-    }
-
-    // 7. Build CC set (exclude anything already in TO)
-    const ccEmailSet = new Set<string>();
-    const ccUserMap = new Map<number, string>();
-
-    const addCc = (
-      email: string | null | undefined,
-      userId: number | null | undefined,
-    ) => {
-      if (email && !toEmailSet.has(email)) {
-        ccEmailSet.add(email);
-        if (userId) ccUserMap.set(userId, email);
+      for (const u of users) {
+        if (u.email && u.id != null) {
+          additionalUsersMap.set(u.id, { id: u.id, email: u.email });
+        }
       }
-    };
-
-    if (ccFlags.assignee) addCc(ctx.assigneeEmail, ctx.assigneeUserId);
-    if (ccFlags.coAssignees) {
-      ctx.coAssigneeEmails.forEach((e, i) =>
-        addCc(e, ctx.coAssigneeUserIds[i]),
-      );
-      ctx.memberEmails.forEach((e, i) => addCc(e, ctx.memberUserIds[i]));
     }
-    if (ccFlags.participants) {
-      ctx.participantEmails.forEach((e, i) =>
-        addCc(e, ctx.participantUserIds[i]),
-      );
-    }
-    if (ccFlags.creator) addCc(ctx.createdByEmail, ctx.createdByUserId);
-    if (ccFlags.actor) addCc(ctx.actorEmail, ctx.actorUserId);
 
-    for (const uid of ccFlags.additionalIds) {
-      const user = await this.entityManager.findOne(User, {
-        where: { id: uid },
-        select: ['id', 'email'],
+    // Process each rule independently to keep channel scopes separate
+    for (const r of matching) {
+      const isEmail = r.channel === 'email' || r.channel === 'both';
+      const isInApp = r.channel === 'in_app' || r.channel === 'both';
+
+      const addTo = (email: string | null | undefined, userId: number | null | undefined) => {
+        if (!email) return;
+        if (isEmail) emailToSet.add(email);
+        if (isInApp && userId) inAppToUserMap.set(userId, email);
+      };
+
+      const addCc = (email: string | null | undefined, userId: number | null | undefined) => {
+        if (!email) return;
+        if (isEmail && !emailToSet.has(email)) emailCcSet.add(email);
+        if (isInApp && userId && !inAppToUserMap.has(userId)) inAppCcUserMap.set(userId, email);
+      };
+
+      if (r.toAssignee) addTo(ctx.assigneeEmail, ctx.assigneeUserId);
+      if (r.toCoAssignees) {
+        ctx.coAssigneeEmails.forEach((e, i) => addTo(e, ctx.coAssigneeUserIds[i]));
+        ctx.memberEmails.forEach((e, i) => addTo(e, ctx.memberUserIds[i]));
+      }
+      if (r.toParticipants) {
+        ctx.participantEmails.forEach((e, i) => addTo(e, ctx.participantUserIds[i]));
+      }
+      if (r.toCreator) addTo(ctx.createdByEmail, ctx.createdByUserId);
+      if (r.toActor) addTo(ctx.actorEmail, ctx.actorUserId);
+
+      r.toAdditionalUserIds?.forEach((uid) => {
+        if (uid == null) return;
+        const u = additionalUsersMap.get(uid);
+        if (u) addTo(u.email, u.id);
       });
-      if (user?.email) addCc(user.email, user.id);
+
+      if (r.ccAssignee) addCc(ctx.assigneeEmail, ctx.assigneeUserId);
+      if (r.ccCoAssignees) {
+        ctx.coAssigneeEmails.forEach((e, i) => addCc(e, ctx.coAssigneeUserIds[i]));
+        ctx.memberEmails.forEach((e, i) => addCc(e, ctx.memberUserIds[i]));
+      }
+      if (r.ccParticipants) {
+        ctx.participantEmails.forEach((e, i) => addCc(e, ctx.participantUserIds[i]));
+      }
+      if (r.ccCreator) addCc(ctx.createdByEmail, ctx.createdByUserId);
+      if (r.ccActor) addCc(ctx.actorEmail, ctx.actorUserId);
+
+      r.ccAdditionalUserIds?.forEach((uid) => {
+        if (uid == null) return;
+        const u = additionalUsersMap.get(uid);
+        if (u) addCc(u.email, u.id);
+      });
     }
 
-    // 8. Fallback: TO must never be empty
-    if (toEmailSet.size === 0 && ctx.actorEmail) {
-      toEmailSet.add(ctx.actorEmail);
-      if (ctx.actorUserId) toUserMap.set(ctx.actorUserId, ctx.actorEmail);
+    // 4. Fallback: if absolutely no one is receiving anything, send in-app to actor
+    if (emailToSet.size === 0 && inAppToUserMap.size === 0 && ctx.actorEmail) {
+      if (ctx.actorUserId) inAppToUserMap.set(ctx.actorUserId, ctx.actorEmail);
     }
 
-    // 9. Build unified notif user map (TO ∪ CC)
     const notifUserEmailMap = new Map<number, string>([
-      ...toUserMap,
-      ...ccUserMap,
+      ...inAppToUserMap,
+      ...inAppCcUserMap,
     ]);
+
+    const sendEmail = emailToSet.size > 0;
+    const sendInApp = notifUserEmailMap.size > 0;
 
     return {
       sendEmail,
       sendInApp,
-      toEmails: [...toEmailSet],
-      ccEmails: [...ccEmailSet],
+      toEmails: [...emailToSet],
+      ccEmails: [...emailCcSet],
       notifUserIds: [...notifUserEmailMap.keys()],
       notifUserEmailMap,
     };
