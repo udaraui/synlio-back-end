@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { User } from './user.entity';
+import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 import { UserCompanyRole } from './user-company-role.entity';
 import { EntityManager, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -21,6 +22,7 @@ import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { TicketSpaceMember } from '../../ticket-management/ticket-space-member/ticket-space-member.entity';
 import { ResourceSkill } from '../../resource-management/resource/resource-skill.entity';
 import { PulseWeek } from '../../pulse/pulse-week.entity';
+import { UserTemporary } from '../../auth/user-temporary.entity';
 
 @Injectable()
 export class UserService {
@@ -28,7 +30,7 @@ export class UserService {
     private readonly entityManager: EntityManager,
     private readonly redisService: RedisService,
     private readonly authorizationService: AuthorizationService,
-  ) {}
+  ) { }
 
   async syncUserCompaniesCache(userId: number) {
     const userCompanies = await this.entityManager.find(UserCompanyView, {
@@ -97,7 +99,7 @@ export class UserService {
         let newCompanyIds = createUserDto.companyIds;
 
         // Security: If not system admin, force the user to be created in the active company
-        if(activeCompanyId && activeCompanyId !== 0) {
+        if (activeCompanyId && activeCompanyId !== 0) {
           newCompanyIds = [activeCompanyId];
         }
 
@@ -105,7 +107,7 @@ export class UserService {
           const existingCompanyIds =
             savedUser.companies?.map((c) => c.id) || [];
 
-            
+
           if (isExistingUser) {
             const isAlreadyInCompany = newCompanyIds.some((id) =>
               existingCompanyIds.includes(id),
@@ -153,7 +155,7 @@ export class UserService {
         // Handle Roles
         if (Array.isArray(createUserDto.userCompanyRoles)) {
           // Security: If not system admin, only allow roles for the active company
-         if (activeCompanyId && activeCompanyId !== 0) {
+          if (activeCompanyId && activeCompanyId !== 0) {
             createUserDto.userCompanyRoles =
               createUserDto.userCompanyRoles.filter(
                 (ucr: any) => ucr.companyId === activeCompanyId,
@@ -457,7 +459,7 @@ export class UserService {
       assigneePatch.assigneeProfilePicUrl = profilePicUrl;
     }
     if (firstName !== undefined) resourcePatch.first_name = firstName;
-    if (lastName !== undefined)  resourcePatch.last_name  = lastName;
+    if (lastName !== undefined) resourcePatch.last_name = lastName;
     if (firstName !== undefined || lastName !== undefined) {
       assigneePatch.assigneeName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
     }
@@ -503,19 +505,13 @@ export class UserService {
   }
 
   async updateRefreshToken(userId: number, refreshToken: string | undefined) {
-    const user = await this.entityManager.findOne(User, {
-      where: { id: userId },
+    const hashedRefreshToken = refreshToken
+      ? await bcrypt.hash(refreshToken, 10)
+      : null;
+    await this.entityManager.update(User, { id: userId }, {
+      hashedRefreshToken: hashedRefreshToken as unknown as string,
     });
-    if (!user) {
-      throw new Error('User not found');
-    }
-    if (refreshToken) {
-      user.hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-    } else {
-      user.hashedRefreshToken = undefined;
-    }
-    await this.entityManager.save(User, user);
-    return user.hashedRefreshToken;
+    return hashedRefreshToken;
   }
 
   async searchByEmail(email: string) {
@@ -1277,5 +1273,108 @@ export class UserService {
       .orderBy('user.first_name', 'ASC')
       .getMany();
     return users;
+  }
+
+  // ─── Self-Registration ─────────────────────────────────────────────────── //
+
+  async isEmailTaken(email: string): Promise<boolean> {
+    const normalized = normalizeEmail(email);
+    const [inUser, inTemp] = await Promise.all([
+      this.entityManager.findOne(User, { where: { email: normalized } }),
+      this.entityManager.findOne(UserTemporary, { where: { email: normalized } }),
+    ]);
+    return !!(inUser || inTemp);
+  }
+
+  /**
+   * Saves registration data to `user_temporary`.
+   * The caller is responsible for sending the verification email.
+   * Throws 'EMAIL_ALREADY_EXISTS' if the email is already in `user`.
+   * Throws 'PENDING_REGISTRATION_EXISTS' if a pending (unverified) row already exists.
+   */
+  async createPendingRegistration(
+    first_name: string,
+    last_name: string,
+    email: string,
+    mobile_number: string | undefined,
+    plainPassword: string,
+    hashedVerificationToken: string,
+    expiry: Date,
+    profilePictureUrl?: string,
+  ): Promise<UserTemporary> {
+    const normalizedEmail = normalizeEmail(email);
+
+    // Guard: reject if email already verified and in the main user table
+    const existingUser = await this.entityManager.findOne(User, {
+      where: { email: normalizedEmail },
+    });
+    if (existingUser) {
+      throw new Error('EMAIL_ALREADY_EXISTS');
+    }
+
+    // Guard: if a pending row already exists, remove it so a fresh token is issued
+    await this.entityManager.query(
+      `DELETE FROM "user_temporary" WHERE "email" = $1`,
+      [normalizedEmail],
+    );
+
+    const pending = new UserTemporary();
+    pending.first_name = first_name;
+    pending.last_name = last_name;
+    pending.email = normalizedEmail;
+    pending.mobile_number = mobile_number ?? (null as unknown as string);
+    pending.password = await bcrypt.hash(plainPassword, 10);
+    pending.emailVerificationToken = hashedVerificationToken;
+    pending.emailVerificationTokenExpiry = expiry;
+    if (profilePictureUrl) {
+      pending.profile_picture = profilePictureUrl;
+    }
+
+    return this.entityManager.save(UserTemporary, pending);
+  }
+
+  async findPendingByToken(hashedToken: string): Promise<UserTemporary | null> {
+    return this.entityManager.findOne(UserTemporary, {
+      where: { emailVerificationToken: hashedToken },
+    });
+  }
+
+  async migrateToUser(pending: UserTemporary): Promise<User> {
+    const hashedPassword = pending.password; // already bcrypt-hashed
+
+    // Use a raw INSERT to avoid TypeORM mapping enum columns not yet in DB schema
+    const result = await this.entityManager.query(
+      `INSERT INTO "user"
+        ("first_name", "last_name", "email", "mobile_number", "password",
+         "registrationSource", "isActive", "profile_picture", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7, now(), now())
+       RETURNING *`,
+      [
+        pending.first_name,
+        pending.last_name,
+        pending.email,
+        pending.mobile_number ?? null,
+        hashedPassword,
+        UserRegistrationSource.SELF_REGISTERED,
+        pending.profile_picture ?? null,
+      ],
+    );
+
+    const savedUser: User = result[0];
+
+    // Clean up the temporary row
+    await this.entityManager.query(
+      `DELETE FROM "user_temporary" WHERE "id" = $1`,
+      [pending.id],
+    );
+
+    return savedUser;
+  }
+
+  async purgeExpiredPendingRegistrations(): Promise<void> {
+    await this.entityManager.query(
+      `DELETE FROM "user_temporary" WHERE "emailVerificationTokenExpiry" < $1`,
+      [new Date()],
+    );
   }
 }

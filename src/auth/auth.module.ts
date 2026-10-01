@@ -12,13 +12,16 @@ import { CompanyModule } from '../company-management/company/company.module';
 import { UserCompanyPrivilegeView } from '../user-management/user/user-company-privilege-view/user-company-privilege.entity';
 import { UserPrivilegeView } from '../user-management/user/user-privilege-view/user-privilege.entity';
 import { RedisModule } from '../redis/redis.module';
+import { UserTemporary } from './user-temporary.entity';
+import { AuthorizationModule } from '../authorization/authorization.module';
 
 @Module({
   imports: [
     UserModule,
     CompanyModule,
     RedisModule,
-    TypeOrmModule.forFeature([UserCompanyPrivilegeView, UserPrivilegeView]),
+    AuthorizationModule,
+    TypeOrmModule.forFeature([UserCompanyPrivilegeView, UserPrivilegeView, UserTemporary]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       secret: jwtConstants.secret,

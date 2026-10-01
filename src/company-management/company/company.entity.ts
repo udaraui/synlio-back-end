@@ -25,6 +25,9 @@ export class Company extends BaseEntity {
   suspend_on: Date;
 
 
+  @Column({ default: false })
+  is_self_registered_company: boolean;
+
   @Column({
     type: 'enum',
     enum: ActiveStatus,

@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
+  Query,
   UnauthorizedException,
   UseGuards,
   Request,
@@ -9,7 +11,11 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
 import { jwtConstants } from './constants';
 import { LocalAuthGuard } from './local.auth.guard';
@@ -18,6 +24,8 @@ import type { Request as ExpressRequest, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from './jwt-auth.gurard';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
+import { RegisterDto } from './dto/register.dto';
+import { OnboardingCreateCompanyDto, OnboardingSetupAdminRoleDto } from './dto/onboarding.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -153,6 +161,100 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.token, dto.newPassword);
+  }
+
+  @Public()
+  @Get('check-email')
+  @HttpCode(HttpStatus.OK)
+  async checkEmail(@Query('email') email: string) {
+    return this.authService.checkEmailExists(email);
+  }
+
+  @Public()
+  @Post('register')
+  @UseInterceptors(FileInterceptor('userProfilePicture'))
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Body() dto: RegisterDto,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.authService.register(
+      dto.first_name,
+      dto.last_name,
+      dto.email,
+      dto.password,
+      dto.mobile_number,
+      file,
+    );
+  }
+
+  @Public()
+  @Get('verify-email')
+  async verifyEmail(
+    @Query('token') token: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!token) {
+      throw new UnauthorizedException('Verification token is missing');
+    }
+
+    const result = await this.authService.verifyEmail(token);
+    res.cookie('refreshToken', result.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return {
+      message: 'Email verified successfully',
+      access_token: result.access_token,
+      return_user: result.return_user,
+    };
+  }
+
+  // ─── Onboarding ────────────────────────────────────────────────────────── //
+
+  @UseGuards(JwtAuthGuard)
+  @Post('onboarding/create-company')
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'companyProfilePicture', maxCount: 1 }
+  ]))
+  @HttpCode(HttpStatus.CREATED)
+  async onboardingCreateCompany(
+    @Body() dto: OnboardingCreateCompanyDto,
+    @Request() req,
+    @UploadedFiles() files: { companyProfilePicture?: Express.Multer.File[] }
+  ) {
+    return this.authService.onboardingCreateCompany(
+      dto.company_name,
+      dto.company_code,
+      req.user,
+      files?.companyProfilePicture?.[0]
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('onboarding/setup-admin-role')
+  @HttpCode(HttpStatus.CREATED)
+  async onboardingSetupAdminRole(
+    @Body() dto: OnboardingSetupAdminRoleDto,
+    @Request() req,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.authService.onboardingSetupAdminRole(
+      dto.companyId,
+      req.user,
+    );
+
+    res.cookie('refreshToken', result.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return result;
   }
 }
 

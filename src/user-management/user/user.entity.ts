@@ -13,6 +13,7 @@ import { ResourcePool } from '../../resource-management/resource-pool/resource-p
 import { BaseEntity } from '../../common/base/base.entity';
 import { TaskSpace } from '../../task-management/task-space/task-space.entity';
 import { PulseWeek } from '../../pulse/pulse-week.entity';
+import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 
 @Entity('user')
 @Unique('unique_user-email', ['email'])
@@ -43,6 +44,13 @@ export class User extends BaseEntity {
 
   @Column({ type: 'timestamp', nullable: true, default: null })
   passwordResetTokenExpiry?: Date;
+
+  @Column({
+    type: 'enum',
+    enum: UserRegistrationSource,
+    default: UserRegistrationSource.SYSTEM,
+  })
+  registrationSource: UserRegistrationSource;
 
   @Column({ default: true })
   isActive: boolean;

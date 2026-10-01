@@ -7,7 +7,7 @@ import {
 
 export async function uploadToAzure(
   file: Express.Multer.File,
-  userId: number,
+  userId: number | string,
 ): Promise<string> {
   const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
 
