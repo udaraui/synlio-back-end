@@ -29,6 +29,7 @@ import { AuthorizationService } from '../authorization/authorization.service';
 import { UserCompanyView } from '../user-management/user/user-company-view/user-company.entity';
 import { Division } from '../company-management/division/division.entity';
 import { uploadToAzure, uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
+import { Resource } from '../resource-management/resource/resource.entity';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -691,7 +692,7 @@ export class AuthService {
 
     // Create a default Division for this company
     const defaultDivision = this.entityManager.create(Division, {
-      division: 'default',
+      division: 'Default',
       division_code: 'DEFAULT',
       companyId,
       isActive: true,
@@ -706,6 +707,28 @@ export class AuthService {
       .relation(Division, 'users')
       .of(savedDivision.id)
       .add(authUser.userId);
+
+    // Create a corresponding Resource record for the authenticated user
+    const fullUser = await this.entityManager.findOne(User, {
+      where: { id: authUser.userId }
+    });
+    
+    if (fullUser) {
+      const resource = this.entityManager.create(Resource, {
+        first_name: fullUser.first_name,
+        last_name: fullUser.last_name,
+        email: fullUser.email,
+        userId: fullUser.id,
+        mobile: fullUser.mobile_number ? parseInt(fullUser.mobile_number) : undefined,
+        working_hours: 8,
+        companyId: companyId,
+        divisionId: savedDivision.id as number,
+        profile_pic: fullUser.profile_picture,
+        active_status: true,
+        createdBy: authUser.email,
+      });
+      await this.entityManager.save(Resource, resource);
+    }
 
     // Refresh auth caches
     try {

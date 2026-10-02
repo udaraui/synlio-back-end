@@ -36,16 +36,12 @@ export class TaskSpaceVisibilityGuard implements CanActivate {
 
     const spaceIds = Object.keys(visibilityDict).map(Number);
 
-    if (spaceIds.length === 0) {
-      // console.log(`[TaskSpaceVisibilityGuard] 403 - spaceIds is empty for user ${user.email} and company ${activeCompanyId}`);
-      return false; // Block request, no access to any space
-    }
-
     // Store the accessible IDs in the request object for endpoints that want to filter lists (like GET /task-space)
     request.accessibleSpaceIds = spaceIds;
 
     // 3A. If it's a specific item endpoint (/:id), validate the ID against the accessible list
     if (spaceIdParam && !isNaN(Number(spaceIdParam))) {
+      if (spaceIds.length === 0) return false;
       const hasAccess = spaceIds.includes(Number(spaceIdParam));
       if (!hasAccess) {
         // console.log(`[TaskSpaceVisibilityGuard] 403 - User ${user.email} does not have access to space ${spaceIdParam}. Accessible: ${spaceIds}`);
@@ -63,7 +59,7 @@ export class TaskSpaceVisibilityGuard implements CanActivate {
       request.body.filters.push({
         field: 'id',
         matchMode: 'in',
-        value: spaceIds,
+        value: spaceIds.length > 0 ? spaceIds : [-1],
       });
     }
 

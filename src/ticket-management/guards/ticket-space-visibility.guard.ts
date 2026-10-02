@@ -47,13 +47,12 @@ export class TicketSpaceVisibilityGuard implements CanActivate {
       await this.redisService.set(cacheKey, JSON.stringify(spaceIds)); 
     }
 
-    if (spaceIds.length === 0) return false; // Block request, no access to any space
-
     // Store the accessible IDs in the request object for endpoints that want to filter lists (like GET /ticket-space)
     request.accessibleSpaceIds = spaceIds;
 
     // 3A. If it's a specific item endpoint (/:id), validate the ID against the accessible list
     if (spaceIdParam && !isNaN(Number(spaceIdParam))) {
+      if (spaceIds.length === 0) return false;
       return spaceIds.includes(Number(spaceIdParam));
     }
 
@@ -67,7 +66,7 @@ export class TicketSpaceVisibilityGuard implements CanActivate {
       request.body.filters.push({
         field: 'id',
         matchMode: 'in',
-        value: spaceIds,
+        value: spaceIds.length > 0 ? spaceIds : [-1],
       });
     }
 
