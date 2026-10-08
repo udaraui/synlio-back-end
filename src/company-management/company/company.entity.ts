@@ -21,9 +21,11 @@ export class Company extends BaseEntity {
   @Column({ nullable: true })
   logo: string;
 
+  @Column({ nullable: true })
+  address: string;
+
   @Column({ type: 'date', nullable: true })
   suspend_on: Date;
-
 
   @Column({ default: false })
   is_self_registered_company: boolean;

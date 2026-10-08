@@ -26,7 +26,7 @@ export interface ResourcePoolDetail {
           c.id AS "calendarId",
           d.division,
           d.id AS "divisionId",
-          r.companyId AS "companyId",
+          r."companyId" AS "companyId",
           -- New Filter-Friendly Column: Concatenated IDs
           COALESCE(
                   '|' || STRING_AGG(rp.id::text, '|') || '|',
@@ -83,7 +83,7 @@ export class CompanyWiseResourceView {
   email: string;
 
   @ViewColumn()
-  mobile: number;
+  mobile: string;
 
   @ViewColumn()
   profile_pic: string;

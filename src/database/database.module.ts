@@ -78,7 +78,7 @@ import { LinkType } from '../link-management/link-type/link-type.entity';
 import { WorkItemLink } from '../link-management/work-item-link/work-item-link.entity';
 import { TicketTemplate } from 'src/ticket-management/ticket-template/ticket-template.entity';
 import { FilterTemplate } from '../filter-template/filter-template.entity';
-import { UserTemporary } from '../auth/user-temporary.entity';
+import { OtpVerification } from '../auth/otp-verification.entity';
 
 @Module({
   imports: [
@@ -166,7 +166,7 @@ import { UserTemporary } from '../auth/user-temporary.entity';
           LinkType,
           WorkItemLink,
           FilterTemplate,
-          UserTemporary,
+          OtpVerification,
         ],
         ssl: configService.get('NODE_ENV') === 'production',
         synchronize: false,

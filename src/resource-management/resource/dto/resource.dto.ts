@@ -87,12 +87,13 @@ export class CreateResourceDto {
   userId: number;
 
   @IsOptional()
+  @IsString()
   @IsMobilePhone()
   @ApiProperty({
     description: 'The Mobile Phone Number of the resource',
     required: false,
   })
-  mobile: number;
+  mobile: string;
 
   @IsOptional()
   @IsString()
@@ -196,12 +197,13 @@ export class UpdateResourceDto {
   calendarId: number;
 
   @IsOptional()
+  @IsString()
   @IsMobilePhone()
   @ApiProperty({
     description: 'The Mobile Phone Number of the resource',
     required: false,
   })
-  mobile: number;
+  mobile: string;
 
   @IsOptional()
   @IsString()
@@ -267,7 +269,7 @@ export class ResponseResourceDto extends BaseDto {
     description: 'The mobile phone number of the resource',
     required: false,
   })
-  mobile: number;
+  mobile: string;
 
   @ApiProperty({
     description: 'The profile picture of the resource',

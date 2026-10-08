@@ -1310,7 +1310,7 @@ export class ResourceService {
     // 3. Patch only the profile fields
     if (user.first_name) resource.first_name = user.first_name;
     if (user.last_name) resource.last_name = user.last_name;
-    if (user.mobile_number) resource.mobile = Number(user.mobile_number) || resource.mobile;
+    if (user.mobile_number) resource.mobile = user.mobile_number;
     if (user.profile_picture) resource.profile_pic = user.profile_picture;
     resource.updatedBy = authUser?.email ?? 'system';
 

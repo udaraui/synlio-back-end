@@ -25,6 +25,7 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from './jwt-auth.gurard';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
+import { VerifyCodeDto } from './dto/verify-code.dto';
 import { OnboardingCreateCompanyDto, OnboardingSetupAdminRoleDto } from './dto/onboarding.dto';
 
 @Controller('auth')
@@ -32,7 +33,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   // @Post('refresh')
   // async refreshToken(@Body('refreshToken') refreshToken: string) {
@@ -171,43 +172,52 @@ export class AuthController {
   }
 
   @Public()
-  @Post('register')
-  @UseInterceptors(FileInterceptor('userProfilePicture'))
+  @Post('send-otp')
   @HttpCode(HttpStatus.CREATED)
   async register(
     @Body() dto: RegisterDto,
-    @UploadedFile() file: Express.Multer.File,
   ) {
     return this.authService.register(
-      dto.first_name,
-      dto.last_name,
       dto.email,
-      dto.password,
-      dto.mobile_number,
-      file,
     );
   }
 
   @Public()
-  @Get('verify-email')
-  async verifyEmail(
-    @Query('token') token: string,
-    @Res({ passthrough: true }) res: Response,
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifyOtp(
+    @Body() dto: VerifyCodeDto,
   ) {
-    if (!token) {
-      throw new UnauthorizedException('Verification token is missing');
-    }
+    return this.authService.verifyOtp(dto.email, dto.code);
+  }
 
-    const result = await this.authService.verifyEmail(token);
+  @Public()
+  @Post('complete')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'userProfilePicture', maxCount: 1 },
+    { name: 'companyProfilePicture', maxCount: 1 },
+  ]))
+  async completeRegistration(
+    @Body() dto: any,
+    @Res({ passthrough: true }) res: Response,
+    @UploadedFiles() files: { userProfilePicture?: Express.Multer.File[], companyProfilePicture?: Express.Multer.File[] }
+  ) {
+    const result = await this.authService.completeRegistration(
+      dto, 
+      files?.userProfilePicture?.[0], 
+      files?.companyProfilePicture?.[0]
+    );
+
     res.cookie('refreshToken', result.refresh_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV !== 'development',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
     return {
-      message: 'Email verified successfully',
+      message: 'Registration completed and logged in',
       access_token: result.access_token,
       return_user: result.return_user,
     };

@@ -12,7 +12,7 @@ import { CompanyModule } from '../company-management/company/company.module';
 import { UserCompanyPrivilegeView } from '../user-management/user/user-company-privilege-view/user-company-privilege.entity';
 import { UserPrivilegeView } from '../user-management/user/user-privilege-view/user-privilege.entity';
 import { RedisModule } from '../redis/redis.module';
-import { UserTemporary } from './user-temporary.entity';
+import { OtpVerification } from './otp-verification.entity';
 import { AuthorizationModule } from '../authorization/authorization.module';
 
 @Module({
@@ -21,7 +21,7 @@ import { AuthorizationModule } from '../authorization/authorization.module';
     CompanyModule,
     RedisModule,
     AuthorizationModule,
-    TypeOrmModule.forFeature([UserCompanyPrivilegeView, UserPrivilegeView, UserTemporary]),
+    TypeOrmModule.forFeature([UserCompanyPrivilegeView, UserPrivilegeView, OtpVerification]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       secret: jwtConstants.secret,
@@ -32,4 +32,4 @@ import { AuthorizationModule } from '../authorization/authorization.module';
   providers: [AuthService, LocalStrategy, JwtStrategy],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }

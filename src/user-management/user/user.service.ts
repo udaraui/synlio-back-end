@@ -22,7 +22,7 @@ import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { TicketSpaceMember } from '../../ticket-management/ticket-space-member/ticket-space-member.entity';
 import { ResourceSkill } from '../../resource-management/resource/resource-skill.entity';
 import { PulseWeek } from '../../pulse/pulse-week.entity';
-import { UserTemporary } from '../../auth/user-temporary.entity';
+import { OtpVerification } from '../../auth/otp-verification.entity';
 
 @Injectable()
 export class UserService {
@@ -230,7 +230,7 @@ export class UserService {
                 resource.userId = savedUser.id;
               }
               if (savedUser.mobile_number) {
-                resource.mobile = parseInt(savedUser.mobile_number);
+                resource.mobile = savedUser.mobile_number;
               }
               resource.working_hours = 8;
               resource.companyId = targetCompanyId;
@@ -1281,7 +1281,7 @@ export class UserService {
     const normalized = normalizeEmail(email);
     const [inUser, inTemp] = await Promise.all([
       this.entityManager.findOne(User, { where: { email: normalized } }),
-      this.entityManager.findOne(UserTemporary, { where: { email: normalized } }),
+      this.entityManager.findOne(OtpVerification, { where: { email: normalized } }),
     ]);
     return !!(inUser || inTemp);
   }
@@ -1293,15 +1293,10 @@ export class UserService {
    * Throws 'PENDING_REGISTRATION_EXISTS' if a pending (unverified) row already exists.
    */
   async createPendingRegistration(
-    first_name: string,
-    last_name: string,
     email: string,
-    mobile_number: string | undefined,
-    plainPassword: string,
-    hashedVerificationToken: string,
+    hashedVerificationCode: string,
     expiry: Date,
-    profilePictureUrl?: string,
-  ): Promise<UserTemporary> {
+  ): Promise<OtpVerification> {
     const normalizedEmail = normalizeEmail(email);
 
     // Guard: reject if email already verified and in the main user table
@@ -1313,67 +1308,54 @@ export class UserService {
     }
 
     // Guard: if a pending row already exists, remove it so a fresh token is issued
-    await this.entityManager.query(
-      `DELETE FROM "user_temporary" WHERE "email" = $1`,
-      [normalizedEmail],
-    );
+    await this.entityManager.delete(OtpVerification, { email: normalizedEmail });
 
-    const pending = new UserTemporary();
-    pending.first_name = first_name;
-    pending.last_name = last_name;
+    const pending = new OtpVerification();
     pending.email = normalizedEmail;
-    pending.mobile_number = mobile_number ?? (null as unknown as string);
-    pending.password = await bcrypt.hash(plainPassword, 10);
-    pending.emailVerificationToken = hashedVerificationToken;
-    pending.emailVerificationTokenExpiry = expiry;
-    if (profilePictureUrl) {
-      pending.profile_picture = profilePictureUrl;
-    }
+    pending.hashed_otp = hashedVerificationCode;
+    pending.expiry = expiry;
+    pending.attempts = 0;
 
-    return this.entityManager.save(UserTemporary, pending);
+    return this.entityManager.save(OtpVerification, pending);
   }
 
-  async findPendingByToken(hashedToken: string): Promise<UserTemporary | null> {
-    return this.entityManager.findOne(UserTemporary, {
-      where: { emailVerificationToken: hashedToken },
+  async findPendingByEmail(email: string): Promise<OtpVerification | null> {
+    return this.entityManager.findOne(OtpVerification, {
+      where: { email: normalizeEmail(email) },
     });
   }
 
-  async migrateToUser(pending: UserTemporary): Promise<User> {
-    const hashedPassword = pending.password; // already bcrypt-hashed
-
-    // Use a raw INSERT to avoid TypeORM mapping enum columns not yet in DB schema
+  /**
+   * Atomically consumes one verification attempt.
+   * Returns the new attempt count, or `null` if the limit was already reached.
+   * Done as a single conditional UPDATE so concurrent guesses can't bypass the cap.
+   */
+  async consumeVerificationAttempt(
+    pendingId: number,
+    maxAttempts: number,
+  ): Promise<number | null> {
     const result = await this.entityManager.query(
-      `INSERT INTO "user"
-        ("first_name", "last_name", "email", "mobile_number", "password",
-         "registrationSource", "isActive", "profile_picture", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7, now(), now())
-       RETURNING *`,
-      [
-        pending.first_name,
-        pending.last_name,
-        pending.email,
-        pending.mobile_number ?? null,
-        hashedPassword,
-        UserRegistrationSource.SELF_REGISTERED,
-        pending.profile_picture ?? null,
-      ],
+      `UPDATE "otp_verifications"
+         SET "attempts" = "attempts" + 1
+       WHERE "id" = $1 AND "attempts" < $2
+       RETURNING "attempts"`,
+      [pendingId, maxAttempts],
     );
+    // Postgres driver returns [rows, rowCount] for UPDATE ... RETURNING
+    const rows = Array.isArray(result?.[0]) ? result[0] : result;
+    return rows?.[0]?.attempts ?? null;
+  }
 
-    const savedUser: User = result[0];
-
-    // Clean up the temporary row
+  async deletePendingRegistration(id: number): Promise<void> {
     await this.entityManager.query(
-      `DELETE FROM "user_temporary" WHERE "id" = $1`,
-      [pending.id],
+      `DELETE FROM "otp_verifications" WHERE "id" = $1`,
+      [id],
     );
-
-    return savedUser;
   }
 
   async purgeExpiredPendingRegistrations(): Promise<void> {
     await this.entityManager.query(
-      `DELETE FROM "user_temporary" WHERE "emailVerificationTokenExpiry" < $1`,
+      `DELETE FROM "otp_verifications" WHERE "expiry" < $1`,
       [new Date()],
     );
   }

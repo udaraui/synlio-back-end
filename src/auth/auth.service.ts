@@ -30,9 +30,15 @@ import { UserCompanyView } from '../user-management/user/user-company-view/user-
 import { Division } from '../company-management/division/division.entity';
 import { uploadToAzure, uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
 import { Resource } from '../resource-management/resource/resource.entity';
+import { normalizeEmail } from '../common/email/email-normalize.helper';
+import { UserRegistrationSource } from 'src/common/enum/user-registration-source.enum';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  /** Verification code lifetime and brute-force limits. */
+  private static readonly VERIFICATION_CODE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+  private static readonly MAX_VERIFICATION_ATTEMPTS = 5;
 
   constructor(
     private usersService: UserService,
@@ -43,7 +49,7 @@ export class AuthService {
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
     private readonly authorizationService: AuthorizationService,
-  ) {}
+  ) { }
 
   async validateUser(email: string, pass: string): Promise<any> {
     const user = await this.usersService.findOne(email);
@@ -63,7 +69,7 @@ export class AuthService {
   private async getPrivilegesWithFallback(userId: number): Promise<any[]> {
     const cachedRaw = await this.redisService.get(`user_privileges:${userId}`);
     let privileges = cachedRaw ? JSON.parse(cachedRaw) : null;
-    
+
     if (!privileges || privileges.length === 0) {
       const dbPrivileges = await this.userPrivilegeViewRepository.find({
         where: { userId },
@@ -185,90 +191,115 @@ export class AuthService {
 
   // ─── Email Verification ───────────────────────────────────────────────── //
 
-  async verifyEmail(rawToken: string): Promise<{
-    access_token: string;
-    refresh_token: string;
-    return_user: any;
-  }> {
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(rawToken)
-      .digest('hex');
+  /** Cryptographically secure, zero-padded 6-digit code. */
+  private generateVerificationCode(): string {
+    return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  }
 
-    const pending = await this.usersService.findPendingByToken(hashedToken);
+  /**
+   * HMAC-SHA256 of `${email}:${code}` with a server secret.
+   * - Email binding keeps the stored hash unique per row.
+   * - The secret prevents offline brute force of the 10^6 code space.
+   */
+  private hashVerificationCode(email: string, code: string): string {
+    const secret = process.env.OTP_HASH_SECRET || process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('OTP_HASH_SECRET (or JWT_SECRET) is not set');
+    }
+    return crypto
+      .createHmac('sha256', secret)
+      .update(`${normalizeEmail(email)}:${code}`)
+      .digest('hex');
+  }
+
+  async verifyOtp(
+    email: string,
+    code: string,
+  ): Promise<{
+    message: string;
+    registration_token: string;
+  }> {
+    const invalid = 'Invalid or expired verification code';
+    const pending = await this.usersService.findPendingByEmail(email);
 
     if (!pending) {
-      throw new BadRequestException('Invalid or expired verification token');
+      throw new BadRequestException(invalid);
     }
 
     if (
-      !pending.emailVerificationTokenExpiry ||
-      new Date() > pending.emailVerificationTokenExpiry
+      !pending.expiry ||
+      new Date() > pending.expiry
     ) {
       throw new BadRequestException(
-        'Verification token has expired. Please register again or request a new link.',
+        'Verification code has expired. Please register again to get a new code.',
       );
     }
 
-    // Migrate from user_temporary → user and delete the temp row
-    const user = await this.usersService.migrateToUser(pending);
-    return this.login({ ...user, id: user.id });
+    // Consume an attempt BEFORE comparing so parallel guesses can't exceed the cap
+    const max = AuthService.MAX_VERIFICATION_ATTEMPTS;
+    const attempts = await this.usersService.consumeVerificationAttempt(
+      pending.id,
+      max,
+    );
+    if (attempts === null) {
+      throw new BadRequestException(
+        'Too many incorrect attempts. Please register again to get a new code.',
+      );
+    }
+
+    const expected = Buffer.from(this.hashVerificationCode(pending.email, code), 'hex');
+    const stored = Buffer.from(pending.hashed_otp, 'hex');
+    const matches =
+      expected.length === stored.length && crypto.timingSafeEqual(expected, stored);
+
+    if (!matches) {
+      const remaining = max - attempts;
+      throw new BadRequestException(
+        remaining > 0
+          ? `Incorrect code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+          : 'Too many incorrect attempts. Please register again to get a new code.',
+      );
+    }
+
+    // Delete the temporary row since verification succeeded
+    await this.usersService.deletePendingRegistration(pending.id);
+
+    const payload = { email: pending.email, isRegistration: true };
+    const registration_token = this.jwtService.sign(payload, { expiresIn: '30m' });
+
+    return {
+      message: 'Email verified successfully',
+      registration_token,
+    };
   }
 
   // ─── Self-Registration ─────────────────────────────────────────────────── //
 
   async register(
-    first_name: string,
-    last_name: string,
     email: string,
-    password: string,
-    mobile_number?: string,
-    profilePicture?: Express.Multer.File,
   ): Promise<{ message: string }> {
-    const rawToken = crypto.randomBytes(32).toString('hex');
+    const rawCode = this.generateVerificationCode();
+    console.log(`[DEV ONLY] OTP Code for ${email}: ${rawCode}`);
+    const hashedCode = this.hashVerificationCode(email, rawCode);
 
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(rawToken)
-      .digest('hex');
-
-    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const expiry = new Date(Date.now() + AuthService.VERIFICATION_CODE_TTL_MS);
 
     let pending;
     try {
-      let profilePictureUrl: string | undefined = undefined;
-      
-      if (profilePicture) {
-        // Use the raw hash as a temporary user ID for azure upload since we don't have user ID yet
-        profilePictureUrl = await uploadToAzure(profilePicture, hashedToken.substring(0, 8));
-      }
-
       pending = await this.usersService.createPendingRegistration(
-        first_name,
-        last_name,
         email,
-        mobile_number,
-        password,
-        hashedToken,
+        hashedCode,
         expiry,
-        profilePictureUrl,
       );
     } catch (err: any) {
       if (err?.message === 'EMAIL_ALREADY_EXISTS') {
-        return {
-          message:
-            'If this email is not already registered, a verification link has been sent.',
-        };
+        throw new BadRequestException('Email already exists. Please log in or use forgot password if you have forgotten your password.');
       }
       throw err;
     }
 
-    const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const frontendUrl = rawFrontendUrl.replace(/\/+$/, '');
-    const verifyLink = `${frontendUrl}/verify-email?token=${rawToken}`;
-
     try {
-      await this.sendVerificationEmail(pending.email, verifyLink, pending.first_name);
+      await this.sendVerificationEmail(pending.email, rawCode);
     } catch (err) {
       this.logger.error(
         `Failed to send verification email to ${pending.email}`,
@@ -278,7 +309,7 @@ export class AuthService {
 
     return {
       message:
-        'Registration successful. Please check your email to verify your account.',
+        'Registration successful. Please check your email for your verification code.',
     };
   }
 
@@ -360,8 +391,7 @@ export class AuthService {
 
   private async sendVerificationEmail(
     toEmail: string,
-    verifyLink: string,
-    firstName: string,
+    verificationCode: string,
   ): Promise<void> {
     const connectionString = process.env.AZURE_COMMUNICATION_CONNECTION_STRING;
     const senderEmail = process.env.AZURE_COMMUNICATION_SENDER_EMAIL;
@@ -410,26 +440,20 @@ export class AuthService {
                   <tr>
                     <td style="padding:40px;">
                       <h2 style="margin:0 0 16px;color:#1a202c;font-size:20px;font-weight:600;">Verify your email address</h2>
-                      <p style="margin:0 0 12px;color:#4a5568;font-size:15px;line-height:1.6;">Hi ${firstName},</p>
+                      <p style="margin:0 0 12px;color:#4a5568;font-size:15px;line-height:1.6;">Hi,</p>
                       <p style="margin:0 0 24px;color:#4a5568;font-size:15px;line-height:1.6;">
-                        Thanks for signing up for Synlio! Please verify your email address by clicking the button below.
-                        This link will expire in <strong>24 hours</strong>.
+                        Thanks for signing up for Synlio! Enter the code below to verify your email address.
+                        This code will expire in <strong>15 minutes</strong>.
                       </p>
-                      <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                      <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                         <tr>
-                          <td style="background:#5b9bd5;border-radius:8px;">
-                            <a href="${verifyLink}" target="_blank"
-                               style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">
-                              Verify Email
-                            </a>
+                          <td style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:16px 28px;text-align:center;">
+                            <span style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#0f172a;">${verificationCode}</span>
                           </td>
                         </tr>
                       </table>
-                      <p style="margin:0 0 8px;color:#718096;font-size:13px;line-height:1.6;">
-                        If the button doesn't work, copy and paste this link into your browser:
-                      </p>
-                      <p style="margin:0 0 24px;word-break:break-all;">
-                        <a href="${verifyLink}" style="color:#5b9bd5;font-size:13px;">${verifyLink}</a>
+                      <p style="margin:0 0 24px;color:#718096;font-size:13px;line-height:1.6;">
+                        For your security, never share this code with anyone. Synlio will never ask you for it.
                       </p>
                       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
                       <p style="margin:0;color:#a0aec0;font-size:12px;line-height:1.6;">
@@ -452,13 +476,13 @@ export class AuthService {
       </html>
     `;
 
-    const text = `Hi ${firstName}, please verify your Synlio account by visiting this link (expires in 24 hours): ${verifyLink}`;
+    const text = `Your Synlio verification code is ${verificationCode}. It expires in 15 minutes. Never share this code with anyone.`;
 
     const emailClient = new EmailClient(connectionString);
     const poller = await emailClient.beginSend({
       senderAddress: senderEmail,
       content: {
-        subject: 'Verify your Synlio account',
+        subject: `${verificationCode} is your Synlio verification code`,
         html,
         plainText: text,
       },
@@ -587,6 +611,64 @@ export class AuthService {
     this.logger.log(`Password reset email sent to ${toEmail}`);
   }
 
+  // ─── Complete Registration ────────────────────────────────────────── //
+
+  async completeRegistration(
+    dto: any,
+    userProfilePicture?: Express.Multer.File,
+    companyProfilePicture?: Express.Multer.File
+  ): Promise<any> {
+    // 1. Verify token
+    let payload;
+    try {
+      payload = this.jwtService.verify(dto.registration_token);
+    } catch (e) {
+      throw new UnauthorizedException('Invalid or expired registration token');
+    }
+
+    if (!payload.isRegistration || payload.email !== dto.email) {
+      throw new UnauthorizedException('Token does not match registration email');
+    }
+
+    // 2. Create User
+    const createUserDto = {
+      email: dto.email,
+      password: dto.password,
+      first_name: dto.first_name,
+      last_name: dto.last_name,
+      phone_number: dto.mobile_number,
+      isActive: true,
+      registrationSource: UserRegistrationSource.SELF_REGISTERED,
+    };
+
+    const user = await this.usersService.createUser(
+      createUserDto as any,
+      { email: dto.email }, // authUser stub
+      userProfilePicture,
+      undefined
+    );
+
+    // 3. Create Company
+    const companyRes = await this.onboardingCreateCompany(
+      dto.company_name,
+      dto.company_code,
+      { email: user.email, userId: user.id },
+      companyProfilePicture
+    );
+
+    if (dto.company_address) {
+      await this.entityManager.update(Company, companyRes.companyId, { address: dto.company_address });
+    }
+
+    // 4. Setup Admin Role
+    const loginResult = await this.onboardingSetupAdminRole(
+      companyRes.companyId,
+      { email: user.email, userId: user.id }
+    );
+
+    return loginResult;
+  }
+
   // ─── Onboarding ───────────────────────────────────────────────── //
 
   /**
@@ -599,7 +681,7 @@ export class AuthService {
     authUser: any,
     companyProfilePicture?: Express.Multer.File
   ): Promise<{ companyId: number; message: string }> {
-    
+
 
     // 2. Create the company with is_self_registered_company always true
     const company = this.entityManager.create(Company, {
@@ -614,9 +696,9 @@ export class AuthService {
 
     // 3. Upload Company Profile Picture
     if (companyProfilePicture) {
-       const companyImageUrl = await uploadToAzureCompanyLogo(companyProfilePicture, saved.id as number);
-       saved.logo = companyImageUrl;
-       saved = await this.entityManager.save(Company, saved);
+      const companyImageUrl = await uploadToAzureCompanyLogo(companyProfilePicture, saved.id as number);
+      saved.logo = companyImageUrl;
+      saved = await this.entityManager.save(Company, saved);
     }
 
     // Link the user to this company
@@ -712,14 +794,14 @@ export class AuthService {
     const fullUser = await this.entityManager.findOne(User, {
       where: { id: authUser.userId }
     });
-    
+
     if (fullUser) {
       const resource = this.entityManager.create(Resource, {
         first_name: fullUser.first_name,
         last_name: fullUser.last_name,
         email: fullUser.email,
         userId: fullUser.id,
-        mobile: fullUser.mobile_number ? parseInt(fullUser.mobile_number) : undefined,
+        mobile: fullUser.mobile_number || undefined,
         working_hours: 8,
         companyId: companyId,
         divisionId: savedDivision.id as number,
@@ -745,7 +827,7 @@ export class AuthService {
     const user = await this.usersService.getOnlyUserById(authUser.userId);
     const loginResult = await this.login(user);
 
-    return { 
+    return {
       message: 'Admin role created and assigned successfully',
       ...loginResult
     };

@@ -36,8 +36,8 @@ export class Resource extends BaseEntity {
   @Column()
   email: string;
 
-  @Column({ nullable: true })
-  mobile: number;
+  @Column({ type: 'varchar', nullable: true })
+  mobile: string;
 
   @Column({ nullable: true })
   profile_pic: string;
