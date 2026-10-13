@@ -10,8 +10,12 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post()
-  async handleChat(@Body('message') message: string, @Res() res: Response) {
-    const stream = await this.chatService.processChat(message);
+  async handleChat(
+    @Body('message') message: string,
+    @Body('conversationId') conversationId: string,
+    @Res() res: Response,
+  ) {
+    const stream = await this.chatService.processChat(message, conversationId);
     
     // Set proper headers to ensure the browser and Express don't buffer the stream
     res.setHeader('Content-Type', 'text/event-stream');

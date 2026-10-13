@@ -3,13 +3,17 @@ import axios from 'axios';
 
 @Injectable()
 export class ChatService {
-  async processChat(message: string): Promise<any> {
+  async processChat(message: string, conversationId?: string): Promise<any> {
     try {
       const aiServiceUrl = process.env.AI_SERVICE_URL;
       // Forward the request to the Python LangGraph backend as a stream
-      const response = await axios.post(`${aiServiceUrl}/chat`, { message }, {
-        responseType: 'stream',
-      });
+      const response = await axios.post(
+        `${aiServiceUrl}/chat`,
+        { message, conversation_id: conversationId },
+        {
+          responseType: 'stream',
+        },
+      );
       return response.data;
     } catch (error) {
       console.error('Error proxying to LangGraph service:', error);
