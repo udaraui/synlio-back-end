@@ -23,6 +23,7 @@ import { TicketSpaceMember } from '../../ticket-management/ticket-space-member/t
 import { ResourceSkill } from '../../resource-management/resource/resource-skill.entity';
 import { PulseWeek } from '../../pulse/pulse-week.entity';
 import { OtpVerification } from '../../auth/otp-verification.entity';
+import { TaskSpace } from 'src/task-management/task-space/task-space.entity';
 
 @Injectable()
 export class UserService {
@@ -1114,7 +1115,39 @@ export class UserService {
       companyId: activeCompanyId,
     });
 
-    // 2. Remove company from user.companies using relation builder to avoid clearing others
+    // 2. Remove user from company's divisions
+    const userDivisions = await this.entityManager
+      .createQueryBuilder(Division, 'division')
+      .innerJoin('division.users', 'user', 'user.id = :userId', { userId: id })
+      .where('division.companyId = :companyId', { companyId: activeCompanyId })
+      .select(['division.id'])
+      .getMany();
+
+    if (userDivisions.length > 0) {
+      await this.entityManager
+        .createQueryBuilder()
+        .relation(User, 'divisions')
+        .of(id)
+        .remove(userDivisions.map((d) => d.id));
+    }
+
+    // 3. Remove user from company's task spaces
+    const userTaskSpaces = await this.entityManager
+      .createQueryBuilder(TaskSpace, 'taskSpace')
+      .innerJoin('taskSpace.owners', 'owner', 'owner.id = :userId', { userId: id })
+      .where('taskSpace.companyId = :companyId', { companyId: activeCompanyId })
+      .select(['taskSpace.id'])
+      .getMany();
+
+    if (userTaskSpaces.length > 0) {
+      await this.entityManager
+        .createQueryBuilder()
+        .relation(User, 'taskSpaces')
+        .of(id)
+        .remove(userTaskSpaces.map((ts) => ts.id));
+    }
+
+    // 4. Remove company from user.companies using relation builder to avoid clearing others
     await this.entityManager
       .createQueryBuilder()
       .relation(User, 'companies')
@@ -1122,21 +1155,25 @@ export class UserService {
       .remove(activeCompanyId);
 
     // Reset defaultCompanyId if it was the one being removed
-    if (existingUser.defaultCompanyId === activeCompanyId) {
-      const remainingCompanies = existingUser.companies.filter(
-        (c) => c.id !== activeCompanyId,
-      );
-      const newDefaultId =
-        remainingCompanies.length > 0 ? remainingCompanies[0].id : null;
+    const remainingCompanies = existingUser.companies.filter(
+      (c) => c.id !== activeCompanyId,
+    );
 
-      await this.entityManager.update(User, id, {
-        defaultCompanyId: newDefaultId as any,
-      });
+    if (remainingCompanies.length === 0) {
+      // The user belonged ONLY to this company. We should completely delete the user.
+      await this.entityManager.delete(User, id);
+    } else {
+      if (existingUser.defaultCompanyId === activeCompanyId) {
+        const newDefaultId = remainingCompanies[0].id;
+        await this.entityManager.update(User, id, {
+          defaultCompanyId: newDefaultId as any,
+        });
+      }
+      
+      // Update cache since user still exists
+      await this.authorizationService.updateUserCompanyPrivilegesIntoCache(id);
+      await this.syncUserCompaniesCache(id);
     }
-
-    // 3. Update cache
-    await this.authorizationService.updateUserCompanyPrivilegesIntoCache(id);
-    await this.syncUserCompaniesCache(id);
   }
 
   async PasswordReset(
