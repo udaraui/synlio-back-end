@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.gurard';
 import { AuthorizationGuard } from '../authorization/decorator/authorization.guard';
+import { AuthorizationPermissions } from '../authorization/decorator/authorization-permissions.decorator';
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -10,6 +11,7 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post()
+  @AuthorizationPermissions('120')
   async handleChat(
     @Body('message') message: string,
     @Body('conversationId') conversationId: string,
