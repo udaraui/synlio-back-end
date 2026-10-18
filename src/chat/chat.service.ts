@@ -16,6 +16,8 @@ export class ChatService {
     conversationId?: string,
     user?: { userId?: number; email?: string; [key: string]: any },
     companyId: number = 0,
+    agent?: string,
+    context?: any,
   ): Promise<any> {
     try {
       const aiServiceUrl = process.env.AI_SERVICE_URL;
@@ -74,6 +76,8 @@ export class ChatService {
         user_id: user?.userId,
         user_email: user?.email,
         company_id: companyId,
+        agent,
+        context,
         scope: {
           allowed_ticket_space_ids: allowedTicketSpaceIds,
           allowed_task_space_ids: allowedTaskSpaceIds,

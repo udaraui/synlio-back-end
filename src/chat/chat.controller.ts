@@ -18,11 +18,13 @@ export class ChatController {
     @Req() req: any,
     @Headers('x-selected-company') selectedCompanyHeader: string,
     @Res() res: Response,
+    @Body('agent') agent?: string,
+    @Body('context') context?: any,
   ) {
     const user = req.user;
     const companyId = Number(selectedCompanyHeader || req.activeCompany?.companyId || 0);
 
-    const stream = await this.chatService.processChat(message, conversationId, user, companyId);
+    const stream = await this.chatService.processChat(message, conversationId, user, companyId, agent, context);
     
     // Set proper headers to ensure the browser and Express don't buffer the stream
     res.setHeader('Content-Type', 'text/event-stream');
