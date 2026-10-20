@@ -26,8 +26,8 @@ export function withMsoIconFallback(
   return `${msoBranch}<!--[if !mso]><!--><span class="chip-icon">${svg}</span><!--<![endif]-->`;
 }
 
-const CHIP_BASE_STYLE = "display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
-const CHIP_MUTED_STYLE = "display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;opacity:0.7;";
+const CHIP_BASE_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
+const CHIP_MUTED_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;opacity:0.7;";
 
 /**
  * Builds a status badge matching frontend InlineEditableStatus:
@@ -46,7 +46,7 @@ export function buildChip(
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
   const dotHtml = options?.hideDot
     ? ''
-    : `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:6px;background-color:${iconColor};"></span>`;
+    : `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${iconColor};"></span>`;
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
   return `<span class="${cls}" style="${style}">${dotHtml}<span class="chip-text">${name}</span></span>`;
 }
@@ -138,7 +138,7 @@ export function buildDateChip(
     const calendarSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
     const cls = options?.muted ? 'chip chip-date-alert chip-muted' : 'chip chip-date-alert';
     const finalSvg = withMsoIconFallback(calendarSvg, CALENDAR_GLYPH, 'color:#ef4444;font-size:12px;margin-right:4px;');
-    const overdueStyle = `display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:transparent;color:#0f172a;border:1px solid #ef4444;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;${options?.muted ? 'opacity:0.7;' : ''}`;
+    const overdueStyle = `display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:transparent;color:#0f172a;border:1px solid #ef4444;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;${options?.muted ? 'opacity:0.7;' : ''}`;
     return `<span class="${cls}" style="${overdueStyle}">${finalSvg}<span class="chip-text">${dateStr}</span></span>`;
   }
 
@@ -172,7 +172,7 @@ export function buildAssigneeChip(
     ? `<img class="user-avatar-img avatar" src="${picUrl}" width="28" height="28" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;object-fit:cover;" />`
     : `<span class="user-avatar-initials avatar" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;background-color:${bg};color:#ffffff;font-size:11px;font-weight:700;line-height:28px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;">${initials}</span>`;
 
-  return `<span style="display:inline-block;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;${opacity}">${avatarHtml}<span class="user-name" style="display:inline-block;vertical-align:middle;margin-left:8px;color:#0f172a;">${name}</span></span>`;
+  return `<span style="display:inline-block;white-space:nowrap !important;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;${opacity}">${avatarHtml}<span class="user-name" style="display:inline-block;vertical-align:middle;margin-left:8px;color:#0f172a;">${name}</span></span>`;
 }
 
 /**
@@ -236,10 +236,10 @@ export function buildChangeValue(
   oldHtml: string,
   newHtml: string,
 ): string {
-  const arrow = '<span class="change-arrow" style="color:#94a3b8;font-size:14px;line-height:1;padding:0 6px;vertical-align:middle;display:inline-block;">&rarr;</span>';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;margin-left:auto;padding:0;float:right;"><tr>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;">${oldHtml}</td>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0 6px;vertical-align:middle;border-collapse:collapse;text-align:center;">${arrow}</td>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;">${newHtml}</td>
+  const arrow = '<span class="change-arrow" style="color:#94a3b8;font-size:13px;line-height:1;padding:0 4px;vertical-align:middle;display:inline-block;white-space:nowrap;">&rarr;</span>';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;margin-left:auto;padding:0;float:right;white-space:nowrap;"><tr>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;white-space:nowrap;">${oldHtml}</td>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0 4px;vertical-align:middle;border-collapse:collapse;text-align:center;white-space:nowrap;">${arrow}</td>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;white-space:nowrap;">${newHtml}</td>
   </tr></table>`;
 }

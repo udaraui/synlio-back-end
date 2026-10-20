@@ -96,8 +96,8 @@ export function buildMasterEmailStyles(): string {
       font-family: ${fontFamily};
       line-height: 1.5;
     }
-    .actor-text strong {
-      color: ${light.textPrimary};
+    .actor-text strong, .actor-name {
+      color: ${light.textPrimary} !important;
       font-weight: 600;
     }
     .avatar, .user-avatar-initials {
@@ -138,21 +138,23 @@ export function buildMasterEmailStyles(): string {
       border-bottom: none !important;
     }
     .meta-label {
-      width: 120px;
+      white-space: nowrap !important;
+      width: 1% !important;
       font-size: 13px;
       font-weight: 500;
       color: ${light.textMuted};
       font-family: ${fontFamily};
-      padding: 12px 16px 12px 32px;
+      padding: 12px 12px 12px 24px;
       vertical-align: middle;
       text-align: left;
     }
     .meta-value {
+      white-space: nowrap !important;
       font-size: 13px;
       color: ${light.textPrimary};
       font-weight: 500;
       font-family: ${fontFamily};
-      padding: 12px 32px 12px 16px;
+      padding: 12px 24px 12px 12px;
       vertical-align: middle;
       text-align: right;
     }
@@ -160,7 +162,8 @@ export function buildMasterEmailStyles(): string {
     /* ── Chip Badges: rounded-md (6px) ── */
     .chip {
       display: inline-block;
-      padding: 2px 9px;
+      white-space: nowrap !important;
+      padding: 2px 8px;
       border-radius: 6px;
       font-size: 12px;
       font-weight: 500;
@@ -303,48 +306,52 @@ export function buildMasterEmailStyles(): string {
       margin: 0;
     }
 
-    /* ── Responsive Mobile Stacking (<= 480px) ────────────────────────── */
+    /* ── Responsive Mobile Layout (<= 480px) ────────────────────────── */
     @media only screen and (max-width: 480px) {
-      body { padding: 16px 8px !important; }
-      .hero { padding: 20px 20px 16px !important; }
-      .header { padding: 14px 20px !important; }
-      .cta { padding: 16px 20px 24px !important; }
-      .meta tr { display: block !important; width: 100% !important; }
+      body { padding: 12px 8px !important; }
+      .wrapper { border-radius: 10px !important; }
+      .hero { padding: 18px 16px 14px !important; }
+      .header { padding: 14px 16px !important; }
+      .cta { padding: 18px 16px 22px !important; }
       .meta-label {
-        display: block !important;
-        width: 100% !important;
-        padding: 12px 20px 4px 20px !important;
-        text-align: left !important;
+        padding: 10px 8px 10px 16px !important;
         font-size: 12px !important;
-        font-weight: 600 !important;
+        width: 1% !important;
+        white-space: nowrap !important;
       }
       .meta-value {
-        display: block !important;
-        width: 100% !important;
-        padding: 0 20px 12px 20px !important;
-        text-align: left !important;
+        padding: 10px 16px 10px 8px !important;
+        font-size: 12px !important;
+        text-align: right !important;
+        white-space: nowrap !important;
       }
+      .ticket-title { font-size: 17px !important; margin-bottom: 8px !important; }
+      .ticket-desc { font-size: 13px !important; margin-bottom: 12px !important; }
+      .code-box { padding: 12px 20px !important; }
+      .code-text { font-size: 26px !important; letter-spacing: 6px !important; }
     }
 
     /* ── Preview Toolbar Toggle Class: .mobile-view ── */
-    .mobile-view .hero { padding: 20px 20px 16px !important; }
-    .mobile-view .header { padding: 14px 20px !important; }
-    .mobile-view .cta { padding: 16px 20px 24px !important; }
-    .mobile-view .meta tr { display: block !important; width: 100% !important; }
+    .mobile-view .wrapper { border-radius: 10px !important; }
+    .mobile-view .hero { padding: 18px 16px 14px !important; }
+    .mobile-view .header { padding: 14px 16px !important; }
+    .mobile-view .cta { padding: 18px 16px 22px !important; }
     .mobile-view .meta-label {
-      display: block !important;
-      width: 100% !important;
-      padding: 12px 20px 4px 20px !important;
-      text-align: left !important;
+      padding: 10px 8px 10px 16px !important;
       font-size: 12px !important;
-      font-weight: 600 !important;
+      width: 1% !important;
+      white-space: nowrap !important;
     }
     .mobile-view .meta-value {
-      display: block !important;
-      width: 100% !important;
-      padding: 0 20px 12px 20px !important;
-      text-align: left !important;
+      padding: 10px 16px 10px 8px !important;
+      font-size: 12px !important;
+      text-align: right !important;
+      white-space: nowrap !important;
     }
+    .mobile-view .ticket-title { font-size: 17px !important; margin-bottom: 8px !important; }
+    .mobile-view .ticket-desc { font-size: 13px !important; margin-bottom: 12px !important; }
+    .mobile-view .code-box { padding: 12px 20px !important; }
+    .mobile-view .code-text { font-size: 26px !important; letter-spacing: 6px !important; }
 
     /* ── Dark Mode Overrides (Standard OS prefers-color-scheme) ─────── */
     @media (prefers-color-scheme: dark) {
@@ -490,81 +497,133 @@ export function buildMasterEmailStyles(): string {
 
     /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
     [data-ogsb] body, body[data-ogsb],
+    [data-ogsc] body, body[data-ogsc],
     [data-ogsb] .outer-table, .outer-table[data-ogsb], .x_outer-table[data-ogsb],
+    [data-ogsc] .outer-table, .outer-table[data-ogsc], .x_outer-table[data-ogsc],
+    [data-ogsb] [class*="outer-table"], [data-ogsc] [class*="outer-table"],
     [data-ogsb="#f1f5f9"] {
       background-color: transparent !important;
       background: transparent !important;
+      background-image: none !important;
     }
 
-    /* Force pure black card background in Outlook Dark Mode */
+    /* Force pure black card background & subtle dark border in Outlook Dark Mode */
     [data-ogsb="#ffffff"],
     .wrapper[data-ogsb], .x_wrapper[data-ogsb], [data-ogsb] .wrapper, [data-ogsb] .x_wrapper,
+    .wrapper[data-ogsc], .x_wrapper[data-ogsc], [data-ogsc] .wrapper, [data-ogsc] .x_wrapper,
     .email-card[data-ogsb], .x_email-card[data-ogsb], [data-ogsb] .email-card, [data-ogsb] .x_email-card,
-    .hero[data-ogsb], .x_hero[data-ogsb], [data-ogsb] .hero, [data-ogsb] .x_hero,
-    .meta[data-ogsb], .x_meta[data-ogsb], [data-ogsb] .meta, [data-ogsb] .x_meta,
-    .cta[data-ogsb], .x_cta[data-ogsb], [data-ogsb] .cta, [data-ogsb] .x_cta {
+    .email-card[data-ogsc], .x_email-card[data-ogsc], [data-ogsc] .email-card, [data-ogsc] .x_email-card,
+    [data-ogsb] [class*="wrapper"], [data-ogsc] [class*="wrapper"],
+    [data-ogsb] [class*="email-card"], [data-ogsc] [class*="email-card"] {
       background-color: ${dark.cardBg} !important;
       background: ${dark.cardBg} !important;
+      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
+      border: 1px solid ${dark.cardBorder} !important;
+      border-color: ${dark.cardBorder} !important;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
     }
 
-    /* Card borders in Outlook Dark Mode */
-    .wrapper[data-ogsc], .x_wrapper[data-ogsc], [data-ogsc] .wrapper, [data-ogsc] .x_wrapper,
-    .email-card[data-ogsc], .x_email-card[data-ogsc], [data-ogsc] .email-card, [data-ogsc] .x_email-card,
-    .wrapper[data-ogsb], .x_wrapper[data-ogsb], [data-ogsb] .wrapper, [data-ogsb] .x_wrapper {
-      border-color: ${dark.cardBorder} !important;
+    /* Hero in Outlook Dark Mode */
+    .hero[data-ogsb], .x_hero[data-ogsb], [data-ogsb] .hero, [data-ogsb] .x_hero,
+    .hero[data-ogsc], .x_hero[data-ogsc], [data-ogsc] .hero, [data-ogsc] .x_hero,
+    [data-ogsb] [class*="hero"], [data-ogsc] [class*="hero"] {
+      background-color: ${dark.cardBg} !important;
+      background: ${dark.cardBg} !important;
+      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
     }
 
     /* Header in Outlook Dark Mode */
     [data-ogsb="#0b1329"],
-    .header[data-ogsb], .x_header[data-ogsb], [data-ogsb] .header, [data-ogsb] .x_header {
+    .header[data-ogsb], .x_header[data-ogsb], [data-ogsb] .header, [data-ogsb] .x_header,
+    .header[data-ogsc], .x_header[data-ogsc], [data-ogsc] .header, [data-ogsc] .x_header,
+    [data-ogsb] [class*="header"], [data-ogsc] [class*="header"] {
       background-color: ${dark.headerBg} !important;
       background: ${dark.headerBg} !important;
       background-image: linear-gradient(${dark.headerBg}, ${dark.headerBg}) !important;
-      border-bottom-color: ${dark.headerBorder} !important;
-    }
-    .header[data-ogsc], .x_header[data-ogsc], [data-ogsc] .header, [data-ogsc] .x_header {
+      border-bottom: 1px solid ${dark.headerBorder} !important;
       border-bottom-color: ${dark.headerBorder} !important;
     }
 
     /* Meta & CTA dividers in Outlook Dark Mode */
+    .meta[data-ogsb], .x_meta[data-ogsb], [data-ogsb] .meta, [data-ogsb] .x_meta,
     .meta[data-ogsc], .x_meta[data-ogsc], [data-ogsc] .meta, [data-ogsc] .x_meta,
-    .cta[data-ogsc], .x_cta[data-ogsc], [data-ogsc] .cta, [data-ogsc] .x_cta {
+    [data-ogsb] [class*="meta"], [data-ogsc] [class*="meta"] {
+      background-color: ${dark.cardBg} !important;
+      background: ${dark.cardBg} !important;
+      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
+    .cta[data-ogsb], .x_cta[data-ogsb], [data-ogsb] .cta, [data-ogsb] .x_cta,
+    .cta[data-ogsc], .x_cta[data-ogsc], [data-ogsc] .cta, [data-ogsc] .x_cta,
+    [data-ogsb] [class*="cta"], [data-ogsc] [class*="cta"] {
+      background-color: ${dark.cardBg} !important;
+      background: ${dark.cardBg} !important;
+      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
+      border-top-color: ${dark.borderDivider} !important;
+    }
+    .meta-label[data-ogsb], .x_meta-label[data-ogsb], [data-ogsb] .meta-label, [data-ogsb] .x_meta-label,
     .meta-label[data-ogsc], .x_meta-label[data-ogsc], [data-ogsc] .meta-label, [data-ogsc] .x_meta-label,
-    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value {
+    [data-ogsb] [class*="meta-label"], [data-ogsc] [class*="meta-label"],
+    .meta-value[data-ogsb], .x_meta-value[data-ogsb], [data-ogsb] .meta-value, [data-ogsb] .x_meta-value,
+    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value,
+    [data-ogsb] [class*="meta-value"], [data-ogsc] [class*="meta-value"] {
+      border-bottom: 1px solid ${dark.borderDivider} !important;
       border-bottom-color: ${dark.borderDivider} !important;
     }
-    .meta-label[data-ogsc], .x_meta-label[data-ogsc], [data-ogsc] .meta-label, [data-ogsc] .x_meta-label {
+    [data-ogsb] .meta tr:last-child > td, [data-ogsc] .meta tr:last-child > td,
+    [data-ogsb] .meta-row-last > td, [data-ogsc] .meta-row-last > td,
+    [data-ogsb] [class*="meta-row-last"] > td, [data-ogsc] [class*="meta-row-last"] > td {
+      border-bottom: none !important;
+    }
+    [data-ogsb] .meta table td, [data-ogsc] .meta table td,
+    [data-ogsb] [class*="meta"] table td, [data-ogsc] [class*="meta"] table td {
+      border: none !important;
+      border-bottom: none !important;
+    }
+    .meta-label[data-ogsc], .x_meta-label[data-ogsc], [data-ogsc] .meta-label, [data-ogsc] .x_meta-label,
+    [data-ogsc] [class*="meta-label"] {
       color: ${dark.textMuted} !important;
     }
-    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value {
+    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value,
+    [data-ogsc] [class*="meta-value"] {
       color: #f8fafc !important;
     }
 
     /* Typography in Outlook Dark Mode */
-    .ticket-title[data-ogsc], .x_ticket-title[data-ogsc], [data-ogsc] .ticket-title, [data-ogsc] .x_ticket-title {
+    .ticket-title[data-ogsc], .x_ticket-title[data-ogsc], [data-ogsc] .ticket-title, [data-ogsc] .x_ticket-title,
+    [data-ogsc] [class*="ticket-title"] {
       color: ${dark.textPrimary} !important;
     }
-    .ticket-desc[data-ogsc], .x_ticket-desc[data-ogsc], [data-ogsc] .ticket-desc, [data-ogsc] .x_ticket-desc {
+    .ticket-desc[data-ogsc], .x_ticket-desc[data-ogsc], [data-ogsc] .ticket-desc, [data-ogsc] .x_ticket-desc,
+    [data-ogsc] [class*="ticket-desc"] {
       color: ${dark.textSecondary} !important;
     }
-    .breadcrumb[data-ogsc], .x_breadcrumb[data-ogsc], [data-ogsc] .breadcrumb, [data-ogsc] .x_breadcrumb {
+    .breadcrumb[data-ogsc], .x_breadcrumb[data-ogsc], [data-ogsc] .breadcrumb, [data-ogsc] .x_breadcrumb,
+    [data-ogsc] [class*="breadcrumb"] {
       color: ${dark.textMuted} !important;
     }
-    .breadcrumb-item[data-ogsc], .x_breadcrumb-item[data-ogsc], [data-ogsc] .breadcrumb-item, [data-ogsc] .x_breadcrumb-item {
+    .breadcrumb-item[data-ogsc], .x_breadcrumb-item[data-ogsc], [data-ogsc] .breadcrumb-item, [data-ogsc] .x_breadcrumb-item,
+    [data-ogsc] [class*="breadcrumb-item"] {
       color: #38bdf8 !important;
     }
-    .actor-text[data-ogsc], .x_actor-text[data-ogsc], [data-ogsc] .actor-text, [data-ogsc] .x_actor-text {
+    .actor-text[data-ogsc], .x_actor-text[data-ogsc], [data-ogsc] .actor-text, [data-ogsc] .x_actor-text,
+    [data-ogsc] [class*="actor-text"] {
       color: ${dark.textMuted} !important;
     }
-    .actor-text strong, .x_actor-text strong, [data-ogsc] .actor-text strong, [data-ogsc] .x_actor-text strong {
+    [data-ogsc] .actor-text strong, [data-ogsc] .x_actor-text strong,
+    [data-ogsb] .actor-text strong, [data-ogsb] .x_actor-text strong,
+    [data-ogsc] .actor-name, [data-ogsc] .x_actor-name,
+    [data-ogsb] .actor-name, [data-ogsb] .x_actor-name,
+    [data-ogsc] [class*="actor-name"], [data-ogsb] [class*="actor-name"] {
       color: ${dark.textPrimary} !important;
     }
 
-    /* CTA Button in Outlook Dark Mode: Pure Black Text & Arrow */
+    /* CTA Button in Outlook Dark Mode */
     .cta-btn-cell[data-ogsb], .x_cta-btn-cell[data-ogsb], [data-ogsb] .cta-btn-cell, [data-ogsb] .x_cta-btn-cell,
-    .cta-btn[data-ogsb], .x_cta-btn[data-ogsb], [data-ogsb] .cta-btn, [data-ogsb] .x_cta-btn {
+    .cta-btn[data-ogsb], .x_cta-btn[data-ogsb], [data-ogsb] .cta-btn, [data-ogsb] .x_cta-btn,
+    [data-ogsb] [class*="cta-btn"] {
       background-color: ${dark.btnBg} !important;
       background-image: linear-gradient(${dark.btnBg}, ${dark.btnBg}) !important;
     }
@@ -584,7 +643,8 @@ export function buildMasterEmailStyles(): string {
     [data-ogsc] .cta-btn-text, [data-ogsc] .x_cta-btn-text,
     [data-ogsc] .cta-btn-arrow, [data-ogsc] .x_cta-btn-arrow,
     [data-ogsc] .cta-btn-font, [data-ogsc] .x_cta-btn-font,
-    [data-ogsc] font[color="#ffffff"] {
+    [data-ogsc] font[color="#ffffff"],
+    [data-ogsc] [class*="cta-btn"] * {
       color: ${dark.btnText} !important;
       text-decoration: none !important;
       border: none !important;
@@ -593,52 +653,85 @@ export function buildMasterEmailStyles(): string {
 
     /* Avatars & Chips in Outlook Dark Mode */
     .avatar[data-ogsc], .x_avatar[data-ogsc], [data-ogsc] .avatar, [data-ogsc] .x_avatar,
-    .user-avatar-initials[data-ogsc], .x_user-avatar-initials[data-ogsc], [data-ogsc] .user-avatar-initials, [data-ogsc] .x_user-avatar-initials {
+    .user-avatar-initials[data-ogsc], .x_user-avatar-initials[data-ogsc], [data-ogsc] .user-avatar-initials, [data-ogsc] .x_user-avatar-initials,
+    [data-ogsc] [class*="user-avatar-initials"] {
       color: ${dark.btnText} !important;
     }
-    .user-name[data-ogsc], .x_user-name[data-ogsc], [data-ogsc] .user-name, [data-ogsc] .x_user-name {
+    .user-name[data-ogsc], .x_user-name[data-ogsc], [data-ogsc] .user-name, [data-ogsc] .x_user-name,
+    [data-ogsc] [class*="user-name"] {
       color: #f8fafc !important;
     }
     .chip[data-ogsb], .x_chip[data-ogsb], [data-ogsb] .chip, [data-ogsb] .x_chip,
-    .chip-muted[data-ogsb], .x_chip-muted[data-ogsb], [data-ogsb] .chip-muted, [data-ogsb] .x_chip-muted {
+    .chip[data-ogsc], .x_chip[data-ogsc], [data-ogsc] .chip, [data-ogsc] .x_chip,
+    [data-ogsb] [class*="chip"], [data-ogsc] [class*="chip"] {
       background-color: ${dark.chipBg} !important;
       background: ${dark.chipBg} !important;
-    }
-    .chip[data-ogsc], .x_chip[data-ogsc], [data-ogsc] .chip, [data-ogsc] .x_chip {
+      background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
+      border: 1px solid ${dark.chipBorder} !important;
+      border-color: ${dark.chipBorder} !important;
       color: ${dark.chipText} !important;
-      border-color: ${dark.chipBorder} !important;
+      box-shadow: none !important;
     }
-    .chip-muted[data-ogsc], .x_chip-muted[data-ogsc], [data-ogsc] .chip-muted, [data-ogsc] .x_chip-muted {
+    .chip-muted[data-ogsb], .x_chip-muted[data-ogsb], [data-ogsb] .chip-muted, [data-ogsb] .x_chip-muted,
+    .chip-muted[data-ogsc], .x_chip-muted[data-ogsc], [data-ogsc] .chip-muted, [data-ogsc] .x_chip-muted,
+    [data-ogsb] [class*="chip-muted"], [data-ogsc] [class*="chip-muted"] {
+      background-color: ${dark.chipBg} !important;
+      background: ${dark.chipBg} !important;
+      background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
+      border: 1px solid ${dark.chipBorder} !important;
+      border-color: ${dark.chipBorder} !important;
       color: ${dark.textMuted} !important;
-      border-color: ${dark.chipBorder} !important;
+      opacity: 0.7 !important;
     }
-    .chip-date-alert[data-ogsc], .x_chip-date-alert[data-ogsc], [data-ogsc] .chip-date-alert, [data-ogsc] .x_chip-date-alert {
+    .chip-date-alert[data-ogsb], .chip-date-alert[data-ogsc],
+    [data-ogsb] [class*="chip-date-alert"], [data-ogsc] [class*="chip-date-alert"] {
+      border: 1px solid #ef4444 !important;
       border-color: #ef4444 !important;
       color: #f8fafc !important;
+      background: transparent !important;
+      background-image: none !important;
     }
-    .code-box[data-ogsb], .x_code-box[data-ogsb], [data-ogsb] .code-box, [data-ogsb] .x_code-box {
+    .code-box[data-ogsb], .x_code-box[data-ogsb], [data-ogsb] .code-box, [data-ogsb] .x_code-box,
+    [data-ogsb] [class*="code-box"] {
       background-color: #070e1c !important;
-    }
-    .code-box[data-ogsc], .x_code-box[data-ogsc], [data-ogsc] .code-box, [data-ogsc] .x_code-box {
+      background: #070e1c !important;
+      background-image: linear-gradient(#070e1c, #070e1c) !important;
+      border: 1px solid ${dark.cardBorder} !important;
       border-color: ${dark.cardBorder} !important;
     }
-    .code-text[data-ogsc], .x_code-text[data-ogsc], [data-ogsc] .code-text, [data-ogsc] .x_code-text {
+    .code-box[data-ogsc], .x_code-box[data-ogsc], [data-ogsc] .code-box, [data-ogsc] .x_code-box,
+    [data-ogsc] [class*="code-box"] {
+      border: 1px solid ${dark.cardBorder} !important;
+      border-color: ${dark.cardBorder} !important;
+    }
+    .code-text[data-ogsc], .x_code-text[data-ogsc], [data-ogsc] .code-text, [data-ogsc] .x_code-text,
+    [data-ogsc] [class*="code-text"] {
       color: #38bdf8 !important;
     }
-    .fallback-box[data-ogsb], .x_fallback-box[data-ogsb], [data-ogsb] .fallback-box, [data-ogsb] .x_fallback-box {
+    .fallback-box[data-ogsb], .x_fallback-box[data-ogsb], [data-ogsb] .fallback-box, [data-ogsb] .x_fallback-box,
+    [data-ogsb] [class*="fallback-box"] {
       background-color: #070e1c !important;
-    }
-    .fallback-box[data-ogsc], .x_fallback-box[data-ogsc], [data-ogsc] .fallback-box, [data-ogsc] .x_fallback-box {
+      background: #070e1c !important;
+      background-image: linear-gradient(#070e1c, #070e1c) !important;
+      border: 1px solid ${dark.cardBorder} !important;
       border-color: ${dark.cardBorder} !important;
     }
-    .fallback-label[data-ogsc], .x_fallback-label[data-ogsc], [data-ogsc] .fallback-label, [data-ogsc] .x_fallback-label {
+    .fallback-box[data-ogsc], .x_fallback-box[data-ogsc], [data-ogsc] .fallback-box, [data-ogsc] .x_fallback-box,
+    [data-ogsc] [class*="fallback-box"] {
+      border: 1px solid ${dark.cardBorder} !important;
+      border-color: ${dark.cardBorder} !important;
+    }
+    .fallback-label[data-ogsc], .x_fallback-label[data-ogsc], [data-ogsc] .fallback-label, [data-ogsc] .x_fallback-label,
+    [data-ogsc] [class*="fallback-label"] {
       color: ${dark.textMuted} !important;
     }
     .fallback-url[data-ogsc], .x_fallback-url[data-ogsc], [data-ogsc] .fallback-url, [data-ogsc] .x_fallback-url,
-    .fallback-link[data-ogsc], .x_fallback-link[data-ogsc], [data-ogsc] .fallback-link, [data-ogsc] .x_fallback-link {
+    .fallback-link[data-ogsc], .x_fallback-link[data-ogsc], [data-ogsc] .fallback-link, [data-ogsc] .x_fallback-link,
+    [data-ogsc] [class*="fallback-link"] {
       color: #38bdf8 !important;
     }
-    .footer p[data-ogsc], .x_footer p[data-ogsc], [data-ogsc] .footer p, [data-ogsc] .x_footer p {
+    .footer p[data-ogsc], .x_footer p[data-ogsc], [data-ogsc] .footer p, [data-ogsc] .x_footer p,
+    [data-ogsc] [class*="footer"] p {
       color: ${dark.textMuted} !important;
     }
 
@@ -702,7 +795,8 @@ export function buildMasterEmailStyles(): string {
     body.dark .actor-text, [data-theme="dark"] .actor-text, html.dark .actor-text {
       color: ${dark.textMuted} !important;
     }
-    body.dark .actor-text strong, [data-theme="dark"] .actor-text strong, html.dark .actor-text strong {
+    body.dark .actor-text strong, [data-theme="dark"] .actor-text strong, html.dark .actor-text strong,
+    body.dark .actor-name, [data-theme="dark"] .actor-name, html.dark .actor-name {
       color: ${dark.textPrimary} !important;
     }
     body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
@@ -828,7 +922,8 @@ export function buildMasterEmailStyles(): string {
     body.light .actor-text, [data-theme="light"] .actor-text, html.light .actor-text {
       color: ${light.textMuted} !important;
     }
-    body.light .actor-text strong, [data-theme="light"] .actor-text strong, html.light .actor-text strong {
+    body.light .actor-text strong, [data-theme="light"] .actor-text strong, html.light .actor-text strong,
+    body.light .actor-name, [data-theme="light"] .actor-name, html.light .actor-name {
       color: ${light.textPrimary} !important;
     }
     body.light .cta, [data-theme="light"] .cta, html.light .cta {

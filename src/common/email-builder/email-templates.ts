@@ -57,14 +57,18 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
       ? `<img class="avatar" src="${actorProfilePicUrl}" alt="${actorName}" width="28" height="28" style="display:block;border-radius:50%;object-fit:cover;"/>`
       : `<span class="avatar user-avatar-initials" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;background-color:#0ea5e9;color:#ffffff;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;text-align:center;line-height:28px;">${actorInitials}</span>`;
 
-    const sentence = actionSentence || `<strong style="color:#0f172a;font-weight:600;">${actorName}</strong> updated this project`;
+    const rawSentence = actionSentence || `<strong>${actorName}</strong> updated this project`;
+    const sentence = rawSentence.replace(
+      /<strong(\b[^>]*)>/gi,
+      '<strong$1 class="actor-name" style="color:#0f172a;font-weight:600;">'
+    );
 
     actorRowHtml = `
       <div class="actor-row" style="margin-top:10px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
-            <td valign="middle" style="padding-right:10px;">${avatarHtml}</td>
-            <td valign="middle"><div class="actor-text" style="font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.5;">${sentence}</div></td>
+            <td valign="middle" style="padding-right:10px;vertical-align:middle;">${avatarHtml}</td>
+            <td valign="middle" style="vertical-align:middle;"><div class="actor-text" style="font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.5;">${sentence}</div></td>
           </tr>
         </table>
       </div>
@@ -82,7 +86,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
       const isLast = i === metaRows.length - 1;
       const cls = isLast ? 'meta-row-last' : 'meta-row';
       const borderStyle = isLast ? 'border-bottom:none !important;' : 'border-bottom:1px solid #f1f5f9;';
-      return `<tr class="${cls}"><td class="meta-label" width="120" valign="middle" style="width:120px;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 16px 12px 32px;vertical-align:middle;text-align:left;${borderStyle}">${row.label}</td><td class="meta-value" valign="middle" style="font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 32px 12px 16px;vertical-align:middle;text-align:right;${borderStyle}">${row.valueHtml}</td></tr>`;
+      return `<tr class="${cls}"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;${borderStyle}">${row.label}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;${borderStyle}">${row.valueHtml}</td></tr>`;
     }).join('');
 
     metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;border-collapse:collapse;width:100%;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
@@ -91,7 +95,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   let ctaHtml = '';
   if (ctaUrl) {
     ctaHtml = `
-      <div class="cta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;padding:24px 32px 28px;text-align:center;">
+      <div class="cta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;padding:24px 28px 28px;text-align:center;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
             <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;border:none;">
@@ -113,7 +117,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   }
 
   const bodyHtml = `
-    <div class="hero" style="background-color:#ffffff;padding:24px 32px 20px;">
+    <div class="hero" style="background-color:#ffffff;padding:24px 28px 20px;">
       ${breadcrumbHtml}
       <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">${title}</h1>
       ${descriptionHtml}

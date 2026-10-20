@@ -38,7 +38,7 @@ export const EmailTokens = {
     textMuted: '#94a3b8',
     borderDivider: '#1e2d4d',
     btnBg: '#0ea5e9',
-    btnText: '#000000',
+    btnText: '#ffffff',
     chipBg: '#091322',
     chipBorder: '#1e2d4d',
     chipText: '#e2e8f0',
