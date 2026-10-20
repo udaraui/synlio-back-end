@@ -236,10 +236,10 @@ export function buildChangeValue(
   oldHtml: string,
   newHtml: string,
 ): string {
-  const arrow = '<span style="color:#94a3b8;font-size:13px;text-decoration:none;padding:0 2px;">&rarr;</span>';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;padding:0;"><tr>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;">${oldHtml}</td>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0 6px;vertical-align:middle;border-collapse:collapse;">${arrow}</td>
-    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;">${newHtml}</td>
+  const arrow = '<span class="change-arrow" style="color:#94a3b8;font-size:14px;line-height:1;padding:0 6px;vertical-align:middle;display:inline-block;">&rarr;</span>';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;margin-left:auto;padding:0;float:right;"><tr>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;">${oldHtml}</td>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0 6px;vertical-align:middle;border-collapse:collapse;text-align:center;">${arrow}</td>
+    <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;">${newHtml}</td>
   </tr></table>`;
 }

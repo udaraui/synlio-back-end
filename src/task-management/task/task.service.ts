@@ -1016,6 +1016,32 @@ export class TmTaskService {
       progressPercentage = 0;
     }
 
+    let resolvedOldStatusId = oldStatusId ?? null;
+    let oldStatusInfo: { name: string; color: string | null } | undefined;
+    let parentTaskIdForRollup = parentTaskId ?? null;
+    try {
+      const existingTask = await this.entityManager.findOne(Task, {
+        where: whereTask,
+        select: ['id', 'statusId', 'statusName', 'statusColor', 'parentTaskId'],
+      });
+      if (existingTask) {
+        if (!resolvedOldStatusId && existingTask.statusId) {
+          resolvedOldStatusId = existingTask.statusId;
+        }
+        if (existingTask.statusName) {
+          oldStatusInfo = {
+            name: existingTask.statusName,
+            color: existingTask.statusColor ?? null,
+          };
+        }
+        if (!parentTaskIdForRollup && existingTask.parentTaskId) {
+          parentTaskIdForRollup = existingTask.parentTaskId;
+        }
+      }
+    } catch (fetchErr) {
+      console.error('[patchStatus] Failed to fetch existing task:', fetchErr);
+    }
+
     const updatePayload: any = {
       statusId: statusId as any,
       statusName: (resolvedStatus?.name ?? null) as any,
@@ -1034,25 +1060,22 @@ export class TmTaskService {
     if (!result.affected)
       throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
 
-    // Roll up status to all ancestors — always fetch parentTaskId from DB so
-    // this works correctly even when the caller omits or mis-supplies it.
-    try {
-      const taskForRollup = await this.entityManager.findOne(Task, {
-        where: { id },
-        select: ['id', 'parentTaskId'],
-      });
-      if (taskForRollup?.parentTaskId) {
-        void this.rollupParent(taskForRollup.parentTaskId, authUser);
+    // Roll up status to all ancestors using parentTaskIdForRollup
+    if (parentTaskIdForRollup) {
+      try {
+        void this.rollupParent(parentTaskIdForRollup, authUser);
+      } catch (rollupErr) {
+        console.error('[StatusRollup] Failed rollupParent:', rollupErr);
       }
-    } catch (rollupErr) {
-      console.error(
-        '[StatusRollup] Failed to fetch task for status rollup:',
-        rollupErr,
-      );
     }
 
-    // Fire-and-forget alert (oldStatusId supplied by caller — no extra DB read)
-    void this.taskAlertService.dispatchStatusChanged(id, oldStatusId, authUser);
+    // Fire-and-forget alert (resolvedOldStatusId and oldStatusInfo guaranteed)
+    void this.taskAlertService.dispatchStatusChanged(
+      id,
+      resolvedOldStatusId,
+      authUser,
+      oldStatusInfo,
+    );
 
     return {
       id,
@@ -1092,6 +1115,28 @@ export class TmTaskService {
       whereTask.companyId = activeCompanyId;
     }
 
+    let resolvedOldSeverityId = oldSeverityId ?? null;
+    let oldSeverityInfo: { name: string; color: string | null } | undefined;
+    try {
+      const existingTask = await this.entityManager.findOne(Task, {
+        where: whereTask,
+        select: ['id', 'severityId', 'severityName', 'severityColor'],
+      });
+      if (existingTask) {
+        if (!resolvedOldSeverityId && existingTask.severityId) {
+          resolvedOldSeverityId = existingTask.severityId;
+        }
+        if (existingTask.severityName) {
+          oldSeverityInfo = {
+            name: existingTask.severityName,
+            color: existingTask.severityColor ?? null,
+          };
+        }
+      }
+    } catch (fetchErr) {
+      console.error('[patchSeverity] Failed to fetch existing task:', fetchErr);
+    }
+
     const result = await this.entityManager.update(Task, whereTask, {
       severityId: severityId as any,
       severityName: (resolvedSeverity?.name ?? null) as any,
@@ -1102,11 +1147,12 @@ export class TmTaskService {
     if (!result.affected)
       throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
 
-    // Fire-and-forget alert (oldSeverityId supplied by caller — no extra DB read)
+    // Fire-and-forget alert (resolvedOldSeverityId and oldSeverityInfo guaranteed)
     void this.taskAlertService.dispatchSeverityChanged(
       id,
-      oldSeverityId,
+      resolvedOldSeverityId,
       authUser,
+      oldSeverityInfo,
     );
 
     return {
@@ -1482,6 +1528,7 @@ export class TmTaskService {
         id,
         task.statusId,
         authUser,
+        task.statusName ? { name: task.statusName, color: task.statusColor } : undefined,
       );
     }
 

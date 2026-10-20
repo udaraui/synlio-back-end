@@ -667,6 +667,28 @@ export class TicketService {
       where.companyId = activeCompanyId;
     }
 
+    let resolvedOldStatusId = oldStatusId ?? null;
+    let oldStatusInfo: { name: string; color: string | null } | undefined;
+    try {
+      const existingTicket = await this.entityManager.findOne(Ticket, {
+        where,
+        select: ['id', 'statusId', 'statusName', 'statusColor'],
+      });
+      if (existingTicket) {
+        if (!resolvedOldStatusId && existingTicket.statusId) {
+          resolvedOldStatusId = existingTicket.statusId;
+        }
+        if (existingTicket.statusName) {
+          oldStatusInfo = {
+            name: existingTicket.statusName,
+            color: existingTicket.statusColor ?? null,
+          };
+        }
+      }
+    } catch (fetchErr) {
+      console.error('[patchStatus] Failed to fetch existing ticket:', fetchErr);
+    }
+
     const resolvedStatus = await this.entityManager.findOne(TicketSpaceStatusConfig, {
       where: { id: statusId },
     });
@@ -684,11 +706,12 @@ export class TicketService {
         throw new HttpException('Ticket not found', HttpStatus.NOT_FOUND);
     });
 
-    // Fire-and-forget alert (oldStatusId supplied by caller — no extra DB read)
+    // Fire-and-forget alert (resolvedOldStatusId and oldStatusInfo guaranteed)
     void this.ticketAlertService.dispatchStatusChanged(
       id,
-      oldStatusId,
+      resolvedOldStatusId,
       authUser,
+      oldStatusInfo,
     );
 
     // Freeze SLA deadlines when Finished; restore when moving away from Finished.
@@ -734,6 +757,7 @@ export class TicketService {
       })
       : null;
 
+    let resolvedOldSeverityId = oldSeverityId ?? null;
     // 2. Perform updates inside the transaction and directly assign the returned Ticket entity
     const updatedTicket = await this.entityManager.transaction<Ticket>(
       async (transactionalEntityManager) => {
@@ -746,6 +770,10 @@ export class TicketService {
 
         if (!existingTicket) {
           throw new NotFoundException(`Ticket with ID ${id} not found.`);
+        }
+
+        if (!resolvedOldSeverityId && existingTicket.severityId) {
+          resolvedOldSeverityId = existingTicket.severityId;
         }
 
         // Safe assignments
@@ -788,7 +816,7 @@ export class TicketService {
     void this.ticketAlertService.dispatchTicketUpdated(
       id,
       { severityId } as any,
-      { severityId: oldSeverityId },
+      { severityId: resolvedOldSeverityId },
       authUser,
     );
 

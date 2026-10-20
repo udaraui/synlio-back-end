@@ -549,6 +549,120 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       }
     }
 
+    /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
+    [data-ogsc] body, [data-ogsb] body, [data-ogsb] .outer-table {
+      background-color: transparent !important;
+      background: transparent !important;
+    }
+    [data-ogsb] .wrapper, [data-ogsb] .email-card {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .wrapper, [data-ogsc] .email-card {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsb] .header {
+      background-color: #050b17 !important;
+    }
+    [data-ogsc] .header {
+      border-bottom-color: #1e2d4d !important;
+    }
+    [data-ogsb] .hero {
+      background-color: #000000 !important;
+    }
+    [data-ogsb] .meta {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .meta {
+      border-top-color: #1e2d4d !important;
+    }
+    [data-ogsc] .meta-label, [data-ogsc] .meta-value {
+      border-bottom-color: #1e2d4d !important;
+    }
+    [data-ogsc] .meta-label {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .meta-value {
+      color: #f8fafc !important;
+    }
+    [data-ogsc] .ticket-title {
+      color: #ffffff !important;
+    }
+    [data-ogsc] .ticket-desc {
+      color: #cbd5e1 !important;
+    }
+    [data-ogsc] .breadcrumb {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .breadcrumb-item {
+      color: #38bdf8 !important;
+    }
+    [data-ogsc] .actor-text {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .actor-text strong {
+      color: #ffffff !important;
+    }
+    [data-ogsb] .cta {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .cta {
+      border-top-color: #1e2d4d !important;
+    }
+    [data-ogsb] .cta-btn-cell, [data-ogsb] .cta-btn {
+      background-color: #0ea5e9 !important;
+      background-image: linear-gradient(#0ea5e9, #0ea5e9) !important;
+    }
+    [data-ogsc] .cta-btn, [data-ogsc] .cta-btn *, [data-ogsc] .cta-btn-text, [data-ogsc] .cta-btn-icon {
+      color: #000000 !important;
+      stroke: #000000 !important;
+      text-decoration: none !important;
+    }
+    [data-ogsc] .avatar, [data-ogsc] .user-avatar-initials {
+      color: #000000 !important;
+    }
+    [data-ogsc] .user-name {
+      color: #f8fafc !important;
+    }
+    [data-ogsb] .chip, [data-ogsb] .chip-muted {
+      background-color: #091322 !important;
+    }
+    [data-ogsc] .chip {
+      color: #e2e8f0 !important;
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .chip-muted {
+      color: #64748b !important;
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .chip-date-alert {
+      border-color: #ef4444 !important;
+      color: #f8fafc !important;
+    }
+    [data-ogsb] .code-box {
+      background-color: #070e1c !important;
+    }
+    [data-ogsc] .code-box {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .code-text {
+      color: #38bdf8 !important;
+    }
+    [data-ogsb] .fallback-box {
+      background-color: #070e1c !important;
+    }
+    [data-ogsc] .fallback-box {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .fallback-label {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .fallback-url, [data-ogsc] .fallback-link {
+      color: #38bdf8 !important;
+    }
+    [data-ogsc] .footer p {
+      color: #64748b !important;
+    }
+
     /* ── Explicit .dark Styles (For Theme Switcher) ─────────────────────── */
     body.dark, [data-theme="dark"] body, html.dark body {
       background: #030712 !important;
@@ -796,9 +910,9 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     }
   </style>
 </head>
-<body bgcolor="#f1f5f9" style="margin:0;padding:32px 16px;background-color:#f1f5f9;color:#0f172a;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+<body style="margin:0;padding:32px 16px;background-color:transparent;color:#0f172a;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   <!-- Outer centering table for email client canvas -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="outer-table" style="width:100%;table-layout:fixed;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="outer-table" style="width:100%;table-layout:fixed;border-collapse:collapse;background-color:transparent;mso-table-lspace:0pt;mso-table-rspace:0pt;">
     <tr>
       <td align="center" valign="top" style="padding:0;">
         <!-- Card Container (max-width 600px) -->
@@ -934,8 +1048,8 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
       <div class="cta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;padding:24px 32px 28px;text-align:center;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
-            <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;border-radius:6px;mso-padding-alt:10px 24px;">
-              <a href="${ctaUrl}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
+            <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;">
+              <a href="${ctaUrl}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
                 <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;">${ctaLabel}</span>&nbsp;<span class="cta-btn-icon" style="color:#ffffff !important;text-decoration:none !important;font-size:13px;vertical-align:middle;">${arrowUpRight}</span>
               </a>
             </td>
@@ -1047,8 +1161,8 @@ export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions):
       <!-- Bulletproof CTA Button (Table + inline styles for Outlook, Gmail, Apple Mail) -->
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 24px;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
         <tr>
-          <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;border-radius:6px;mso-padding-alt:10px 24px;">
-            <a href="${resetLink}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
+          <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;">
+            <a href="${resetLink}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
               <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;">Reset Password</span>&nbsp;<span class="cta-btn-icon" style="color:#ffffff !important;text-decoration:none !important;font-size:13px;vertical-align:middle;">${arrowUpRight}</span>
             </a>
           </td>

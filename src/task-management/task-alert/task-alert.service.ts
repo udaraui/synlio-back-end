@@ -19,7 +19,18 @@ import { ServiceBusService } from '../../common/azure/service-bus.service';
 import { TaskEventType } from '../../common/enum/task-event.enum';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { AlertRuleService } from '../../alert/alert-rule/space-alert-rule.service';
-import { buildEmailHtml, buildChip } from '../../common/email-builder';
+import {
+  buildEmailHtml,
+  buildChip,
+  buildSeverityChip,
+  buildTypeChip,
+  buildQueueChip,
+  buildImpactChip,
+  buildDateChip,
+  buildAssigneeChip,
+  buildParticipantsChip,
+  buildChangeValue,
+} from '../../common/email-builder';
 
 // ─────────────────────────────────────────────────────────────────────────── //
 //  Internal context – built once per dispatch, shared across private helpers
@@ -323,6 +334,7 @@ export class TaskAlertService {
     taskId: number,
     oldStatusId: number | null | undefined,
     authUser: any,
+    oldStatusInfo?: { name?: string | null; color?: string | null },
   ): Promise<void> {
     const ctx = await this.loadContext(
       taskId,
@@ -331,17 +343,31 @@ export class TaskAlertService {
     );
     if (!ctx) return;
     this.logger.debug(`[Task ${taskId}] Status - Old: ${oldStatusId}, New: ${ctx.task.statusId}`);
-    if (oldStatusId === ctx.task.statusId) return;
+    if (oldStatusId === ctx.task.statusId && !oldStatusInfo) return;
 
-    let oldStatusName = '—';
-    let oldStatusColor: string | null = null;
-    if (oldStatusId) {
+    let oldStatusName = oldStatusInfo?.name || '—';
+    let oldStatusColor: string | null = oldStatusInfo?.color || null;
+    if ((!oldStatusName || oldStatusName === '—') && oldStatusId) {
       const oldStatus = await this.entityManager.findOne(TaskSpaceStatusConfig, {
         where: { id: oldStatusId },
       });
       if (oldStatus) {
         oldStatusName = oldStatus.name;
         oldStatusColor = oldStatus.color;
+      }
+    }
+
+    // Space default status fallback if still unknown
+    if ((!oldStatusName || oldStatusName === '—') && ctx.task.taskSpaceId) {
+      const defaultStatus = await this.entityManager.findOne(TaskSpaceStatusConfig, {
+        where: { taskSpaceId: ctx.task.taskSpaceId, isPrimaryBase: true },
+      }) || await this.entityManager.findOne(TaskSpaceStatusConfig, {
+        where: { taskSpaceId: ctx.task.taskSpaceId },
+        order: { sequence: 'ASC' },
+      });
+      if (defaultStatus && defaultStatus.name !== ctx.statusName) {
+        oldStatusName = defaultStatus.name;
+        oldStatusColor = defaultStatus.color;
       }
     }
 
@@ -356,6 +382,7 @@ export class TaskAlertService {
     taskId: number,
     oldSeverityId: number | null | undefined,
     authUser: any,
+    oldSeverityInfo?: { name?: string | null; color?: string | null },
   ): Promise<void> {
     const ctx = await this.loadContext(
       taskId,
@@ -364,17 +391,29 @@ export class TaskAlertService {
     );
     if (!ctx) return;
     this.logger.debug(`[Task ${taskId}] Severity - Old: ${oldSeverityId}, New: ${ctx.task.severityId}`);
-    if (oldSeverityId === ctx.task.severityId) return;
+    if (oldSeverityId === ctx.task.severityId && !oldSeverityInfo) return;
 
-    let oldSeverityName = '—';
-    let oldSeverityColor: string | null = null;
-    if (oldSeverityId) {
+    let oldSeverityName = oldSeverityInfo?.name || '—';
+    let oldSeverityColor: string | null = oldSeverityInfo?.color || null;
+    if ((!oldSeverityName || oldSeverityName === '—') && oldSeverityId) {
       const oldSeverity = await this.entityManager.findOne(TaskSpaceSeverityConfig, {
         where: { id: oldSeverityId },
       });
       if (oldSeverity) {
         oldSeverityName = oldSeverity.name;
         oldSeverityColor = oldSeverity.color;
+      }
+    }
+
+    // Space default severity fallback if still unknown
+    if ((!oldSeverityName || oldSeverityName === '—') && ctx.task.taskSpaceId) {
+      const defaultSeverity = await this.entityManager.findOne(TaskSpaceSeverityConfig, {
+        where: { taskSpaceId: ctx.task.taskSpaceId },
+        order: { id: 'ASC' },
+      });
+      if (defaultSeverity && defaultSeverity.name !== ctx.severityName) {
+        oldSeverityName = defaultSeverity.name;
+        oldSeverityColor = defaultSeverity.color;
       }
     }
 
@@ -841,9 +880,9 @@ export class TaskAlertService {
 
     if (event === TaskEventType.TASK_CREATED) {
       metaRows = [
-        { label: 'Severity', valueHtml: buildChip(severityName, ctx.severityColor, { icon: 'flag' }) },
+        { label: 'Severity', valueHtml: buildSeverityChip(severityName, ctx.severityColor) },
         { label: 'Status', valueHtml: buildChip(statusName, ctx.statusColor) },
-        { label: 'Assignee', valueHtml: assigneeName },
+        { label: 'Assignee', valueHtml: assigneeName && assigneeName !== 'Unassigned' ? buildAssigneeChip(assigneeName, null) : '<span style="color:#94a3b8;">Unassigned</span>' },
       ];
     } else if (
       event === TaskEventType.TASK_UPDATED ||
@@ -855,16 +894,48 @@ export class TaskAlertService {
       const descField = fields.find((f) => f.isHtml);
 
       metaRows = nonDescFields.map(f => {
-        if (f.oldColor !== undefined || f.newColor !== undefined) {
-          const icon: 'dot' | 'flag' = f.label === 'Severity' ? 'flag' : 'dot';
-          return {
-            label: f.label,
-            valueHtml: `${buildChip(f.oldValue, f.oldColor, { muted: true, icon })} <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> ${buildChip(f.newValue, f.newColor, { icon })}`,
-          };
+        let oldChip = '';
+        let newChip = '';
+
+        if (f.label === 'Status') {
+          oldChip = buildChip(f.oldValue, f.oldColor, { muted: true });
+          newChip = buildChip(f.newValue, f.newColor);
+        } else if (f.label === 'Severity') {
+          oldChip = buildSeverityChip(f.oldValue, f.oldColor, { muted: true });
+          newChip = buildSeverityChip(f.newValue, f.newColor);
+        } else if (f.label === 'Type') {
+          oldChip = buildTypeChip(f.oldValue, { muted: true });
+          newChip = buildTypeChip(f.newValue);
+        } else if (f.label === 'Queue') {
+          oldChip = buildQueueChip(f.oldValue, { muted: true });
+          newChip = buildQueueChip(f.newValue);
+        } else if (f.label === 'Impact') {
+          oldChip = buildImpactChip(f.oldValue, { muted: true });
+          newChip = buildImpactChip(f.newValue);
+        } else if (f.label === 'Timeline' || f.label.includes('Date')) {
+          oldChip = buildDateChip(f.oldValue, { muted: true });
+          newChip = buildDateChip(f.newValue);
+        } else if (f.label === 'Assignee') {
+          oldChip = f.oldValue && f.oldValue !== 'Unassigned' && f.oldValue !== '—'
+            ? buildAssigneeChip(f.oldValue, null, { muted: true })
+            : `<span style="color:#94a3b8;">${f.oldValue || '—'}</span>`;
+          newChip = f.newValue && f.newValue !== 'Unassigned' && f.newValue !== '—'
+            ? buildAssigneeChip(f.newValue, null)
+            : `<span style="color:#0f172a;">${f.newValue || '—'}</span>`;
+        } else if (f.label === 'Participants') {
+          oldChip = buildParticipantsChip(f.oldValue, { muted: true });
+          newChip = buildParticipantsChip(f.newValue);
+        } else if (f.oldColor !== undefined || f.newColor !== undefined) {
+          oldChip = buildChip(f.oldValue, f.oldColor, { muted: true });
+          newChip = buildChip(f.newValue, f.newColor);
+        } else {
+          oldChip = `<span style="color:#94a3b8;font-weight:400;">${f.oldValue || '—'}</span>`;
+          newChip = `<span style="color:#0f172a;font-weight:600;">${f.newValue || '—'}</span>`;
         }
+
         return {
           label: f.label,
-          valueHtml: `<span style="color:#94a3b8;font-weight:400;">${f.oldValue}</span> <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> <span style="color:#0f172a;font-weight:600;">${f.newValue}</span>`,
+          valueHtml: buildChangeValue(oldChip, newChip),
         };
       });
 
@@ -878,20 +949,44 @@ export class TaskAlertService {
         `;
       }
     } else if (event === TaskEventType.TASK_ASSIGNED) {
+      const oldVal = ctx.oldAssignee && ctx.oldAssignee !== 'Unassigned' && ctx.oldAssignee !== '—'
+        ? buildAssigneeChip(ctx.oldAssignee, null, { muted: true })
+        : '<span style="color:#94a3b8;">Unassigned</span>';
+      const newVal = (ctx.newAssignee ?? assigneeName) && (ctx.newAssignee ?? assigneeName) !== 'Unassigned' && (ctx.newAssignee ?? assigneeName) !== '—'
+        ? buildAssigneeChip(ctx.newAssignee ?? assigneeName, null)
+        : '<span style="color:#94a3b8;">Unassigned</span>';
       metaRows = [
-        { label: 'Assignee', valueHtml: `<span style="color:#94a3b8;">${ctx.oldAssignee ?? 'Unassigned'}</span> <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> <span style="color:#0f172a;">${ctx.newAssignee ?? assigneeName}</span>` }
+        { label: 'Assignee', valueHtml: buildChangeValue(oldVal, newVal) }
       ];
     } else if (event === TaskEventType.STATUS_CHANGED) {
       metaRows = [
-        { label: 'Status', valueHtml: `${buildChip(ctx.oldStatus, ctx.oldStatusColor, { muted: true })} <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> ${buildChip(ctx.newStatus ?? statusName, ctx.newStatusColor ?? ctx.statusColor)}` }
+        {
+          label: 'Status',
+          valueHtml: buildChangeValue(
+            buildChip(ctx.oldStatus, ctx.oldStatusColor, { muted: true }),
+            buildChip(ctx.newStatus ?? statusName, ctx.newStatusColor ?? ctx.statusColor),
+          ),
+        },
       ];
     } else if (event === TaskEventType.SEVERITY_CHANGED) {
       metaRows = [
-        { label: 'Severity', valueHtml: `${buildChip(ctx.oldSeverity, ctx.oldSeverityColor, { muted: true, icon: 'flag' })} <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> ${buildChip(ctx.newSeverity ?? severityName, ctx.newSeverityColor ?? ctx.severityColor, { icon: 'flag' })}` }
+        {
+          label: 'Severity',
+          valueHtml: buildChangeValue(
+            buildSeverityChip(ctx.oldSeverity, ctx.oldSeverityColor, { muted: true }),
+            buildSeverityChip(ctx.newSeverity ?? severityName, ctx.newSeverityColor ?? ctx.severityColor),
+          ),
+        },
       ];
     } else if (event === TaskEventType.NAME_CHANGED) {
       metaRows = [
-        { label: 'Name', valueHtml: `<span style="color:#94a3b8;">${ctx.oldName ?? '—'}</span> <span style="color:#94a3b8;">&nbsp;→&nbsp;</span> <span style="color:#0f172a;">${ctx.newName ?? ctx.task.name}</span>` }
+        {
+          label: 'Name',
+          valueHtml: buildChangeValue(
+            `<span style="color:#94a3b8;">${ctx.oldName ?? '—'}</span>`,
+            `<span style="color:#0f172a;font-weight:600;">${ctx.newName ?? ctx.task.name}</span>`,
+          ),
+        },
       ];
     } else if (event === TaskEventType.COMMENT_ADDED) {
       const escaped = (ctx.commentText ?? '')
@@ -928,8 +1023,7 @@ export class TaskAlertService {
       customDetailBlockHtml,
       metaRows,
       ctaUrl: event !== TaskEventType.TASK_DELETED ? viewTaskUrl : undefined,
-      ctaLabel: 'View Task',
-      ctaSubTextHtml: `You were CC'd on this notification`,
+      ctaLabel: 'View in Synlio',
     });
   }
 
