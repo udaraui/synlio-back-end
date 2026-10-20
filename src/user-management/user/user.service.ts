@@ -13,7 +13,7 @@ import { Role } from '../role/role.entity';
 import { RedisService } from '../../redis/redis.service';
 import { ResourcePool } from '../../resource-management/resource-pool/resource-pool.entity';
 import { uploadToAzure } from '../../common/azure/azure-image-upload';
-import { normalizeEmail } from '../../common/email/email-normalize.helper';
+import { normalizeEmail } from '../../common/email-builder';
 import { Resource } from '../../resource-management/resource/resource.entity';
 import { Calendar } from '../../resource-management/calendar/calendar.entity';
 import { AuthorizationService } from '../../authorization/authorization.service';

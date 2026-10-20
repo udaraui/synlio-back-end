@@ -3,24 +3,21 @@ import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Ticket } from '../ticket/ticket.entity';
-import { TicketSpace } from '../ticket-space/ticket-space.entity';
 import { TicketSpaceMember } from '../ticket-space-member/ticket-space-member.entity';
 import { TicketSpaceStatusConfig } from '../ticket-space-status-config/ticket-space-status-config.entity';
 import { TicketSpaceSeverityConfig } from '../ticket-space-severity-config/ticket-space-severity-config.entity';
 import { TicketQueue } from '../ticket-queue/ticket-queue.entity';
 import { TicketType } from '../ticket-type/ticket-type.entity';
 import { TicketImpact } from '../ticket-impact/ticket-impact.entity';
-
 import { Division } from '../../company-management/division/division.entity';
 import { User } from '../../user-management/user/user.entity';
-import { Company } from '../../company-management/company/company.entity';
 import { Email } from '../../alert/email/email.entity';
 import { Notification } from '../../alert/notification/notification.entity';
 import { ServiceBusService } from '../../common/azure/service-bus.service';
 import { TicketEventType } from '../../common/enum/ticket-event.enum';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { AlertRuleService } from '../../alert/alert-rule/space-alert-rule.service';
-import { buildEmailHtml, buildChip } from '../../common/email/email-template.helper';
+import { buildEmailHtml, buildChip } from '../../common/email-builder';
 
 // ─────────────────────────────────────────────────────────────────────────── //
 //  Internal context – built once per dispatch, shared across private helpers

@@ -19,7 +19,7 @@ import { ServiceBusService } from '../../common/azure/service-bus.service';
 import { TaskEventType } from '../../common/enum/task-event.enum';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { AlertRuleService } from '../../alert/alert-rule/space-alert-rule.service';
-import { buildEmailHtml, buildChip } from '../../common/email/email-template.helper';
+import { buildEmailHtml, buildChip } from '../../common/email-builder';
 
 // ─────────────────────────────────────────────────────────────────────────── //
 //  Internal context – built once per dispatch, shared across private helpers

@@ -1,4 +1,4 @@
-import { buildEmailHtml } from '../common/email/email-template.helper';
+import { buildEmailHtml } from '../common/email-builder';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';

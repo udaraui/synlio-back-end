@@ -15,7 +15,11 @@ import * as crypto from 'crypto';
 import { UserService } from '../user-management/user/user.service';
 import { UserPrivilegeView } from '../user-management/user/user-privilege-view/user-privilege.entity';
 import { RedisService } from '../redis/redis.service';
-import { SYNLIO_LOGO_DATA_URI } from '../common/email/email-template.helper';
+import {
+  buildVerificationEmailHtml,
+  buildPasswordResetEmailHtml,
+  normalizeEmail,
+} from '../common/email-builder';
 import { EmailClient } from '@azure/communication-email';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager, In } from 'typeorm';
@@ -28,9 +32,8 @@ import { ActiveStatus } from '../common/enum/status.enum';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { UserCompanyView } from '../user-management/user/user-company-view/user-company.entity';
 import { Division } from '../company-management/division/division.entity';
-import { uploadToAzure, uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
+import { uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
 import { Resource } from '../resource-management/resource/resource.entity';
-import { normalizeEmail } from '../common/email/email-normalize.helper';
 import { UserRegistrationSource } from 'src/common/enum/user-registration-source.enum';
 @Injectable()
 export class AuthService {
@@ -400,81 +403,10 @@ export class AuthService {
       throw new Error('Azure Communication Services credentials are not configured');
     }
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <title>Verify your Synlio account</title>
-          <style>
-            body, .email-bg { background-color:#ffffff; }
-            @media (prefers-color-scheme: dark) {
-              body, .email-bg { background-color:#0b1220 !important; }
-            }
-            [data-ogsc] body, [data-ogsc] .email-bg { background-color:#0b1220 !important; }
-          </style>
-        </head>
-        <body style="margin:0;padding:0;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-          <table width="100%" cellpadding="0" cellspacing="0" class="email-bg" style="background-color:#ffffff;padding:40px 20px;">
-            <tr>
-              <td align="center">
-                <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-                  <tr>
-                    <td style="background-color:#0f172a;padding:28px 40px;text-align:center;">
-                      <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-                        <tr>
-                          <td style="vertical-align:middle;padding-right:10px;">
-                            <img src="${SYNLIO_LOGO_DATA_URI}" alt="Synlio" width="28" height="28" style="display:block;"/>
-                          </td>
-                          <td style="vertical-align:middle;">
-                            <span style="color:#f3f4f6;font-size:15px;font-weight:600;letter-spacing:.08em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">Synlio</span>
-                          </td>
-                        </tr>
-                      </table>
-                      <div style="color:#94a3b8;font-size:13px;margin-top:10px;letter-spacing:.5px;">
-                        Email Verification
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:40px;">
-                      <h2 style="margin:0 0 16px;color:#1a202c;font-size:20px;font-weight:600;">Verify your email address</h2>
-                      <p style="margin:0 0 12px;color:#4a5568;font-size:15px;line-height:1.6;">Hi,</p>
-                      <p style="margin:0 0 24px;color:#4a5568;font-size:15px;line-height:1.6;">
-                        Thanks for signing up for Synlio! Enter the code below to verify your email address.
-                        This code will expire in <strong>15 minutes</strong>.
-                      </p>
-                      <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
-                        <tr>
-                          <td style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:16px 28px;text-align:center;">
-                            <span style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#0f172a;">${verificationCode}</span>
-                          </td>
-                        </tr>
-                      </table>
-                      <p style="margin:0 0 24px;color:#718096;font-size:13px;line-height:1.6;">
-                        For your security, never share this code with anyone. Synlio will never ask you for it.
-                      </p>
-                      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-                      <p style="margin:0;color:#a0aec0;font-size:12px;line-height:1.6;">
-                        If you didn't create a Synlio account, you can safely ignore this email.
-                      </p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:20px 40px;background:#f7fafc;text-align:center;">
-                      <p style="margin:0;color:#a0aec0;font-size:12px;">
-                        &copy; ${new Date().getFullYear()} Synlio. All rights reserved.
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-      </html>
-    `;
+    const html = buildVerificationEmailHtml({
+      verificationCode,
+      expiryMinutes: 15,
+    });
 
     const text = `Your Synlio verification code is ${verificationCode}. It expires in 15 minutes. Never share this code with anyone.`;
 
@@ -507,89 +439,11 @@ export class AuthService {
       throw new Error('Azure Communication Services credentials are not configured');
     }
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <meta name="color-scheme" content="light dark" />
-          <meta name="supported-color-schemes" content="light dark" />
-          <title>Reset Your Password</title>
-          <style>
-            body, .email-bg { background-color:#ffffff; }
-            @media (prefers-color-scheme: dark) {
-              body, .email-bg { background-color:#0b1220 !important; }
-            }
-            [data-ogsc] body, [data-ogsc] .email-bg { background-color:#0b1220 !important; }
-          </style>
-        </head>
-        <body style="margin:0;padding:0;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-          <table width="100%" cellpadding="0" cellspacing="0" class="email-bg" style="background-color:#ffffff;padding:40px 20px;">
-            <tr>
-              <td align="center">
-                <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-                  <tr>
-                    <td style="background-color:#0f172a;padding:28px 40px;text-align:center;">
-                      <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-                        <tr>
-                          <td style="vertical-align:middle;padding-right:10px;">
-                            <img src="${SYNLIO_LOGO_DATA_URI}" alt="Synlio" width="28" height="28" style="display:block;"/>
-                          </td>
-                          <td style="vertical-align:middle;">
-                            <span style="color:#f3f4f6;font-size:15px;font-weight:600;letter-spacing:.08em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">Synlio</span>
-                          </td>
-                        </tr>
-                      </table>
-                      <div style="color:#94a3b8;font-size:13px;margin-top:10px;letter-spacing:.5px;">
-                        Password Reset
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:40px;">
-                      <h2 style="margin:0 0 16px;color:#1a202c;font-size:20px;font-weight:600;">Reset Your Password</h2>
-                      <p style="margin:0 0 12px;color:#4a5568;font-size:15px;line-height:1.6;">Hi ${firstName},</p>
-                      <p style="margin:0 0 24px;color:#4a5568;font-size:15px;line-height:1.6;">
-                        We received a request to reset the password for your Synlio account.
-                        Click the button below to set a new password. This link will expire in <strong>1 hour</strong>.
-                      </p>
-                      <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
-                        <tr>
-                          <td style="background:#5b9bd5;border-radius:8px;">
-                            <a href="${resetLink}" target="_blank"
-                               style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">
-                              Reset Password
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-                      <p style="margin:0 0 8px;color:#718096;font-size:13px;line-height:1.6;">
-                        If the button doesn't work, copy and paste this link into your browser:
-                      </p>
-                      <p style="margin:0 0 24px;word-break:break-all;">
-                        <a href="${resetLink}" style="color:#5b9bd5;font-size:13px;">${resetLink}</a>
-                      </p>
-                      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-                      <p style="margin:0;color:#a0aec0;font-size:12px;line-height:1.6;">
-                        If you didn't request a password reset, you can safely ignore this email.
-                      </p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:20px 40px;background:#f7fafc;text-align:center;">
-                      <p style="margin:0;color:#a0aec0;font-size:12px;">
-                        &copy; ${new Date().getFullYear()} Synlio. All rights reserved.
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-      </html>
-    `;
+    const html = buildPasswordResetEmailHtml({
+      firstName,
+      resetLink,
+      expiryHours: 1,
+    });
 
     const text = `Hi ${firstName}, reset your Synlio password here (expires in 1 hour): ${resetLink}`;
 

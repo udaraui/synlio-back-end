@@ -20,7 +20,7 @@ import { Company } from '../../company-management/company/company.entity';
 import { Division } from '../../company-management/division/division.entity';
 import { ResourcePool } from '../resource-pool/resource-pool.entity';
 import { uploadToAzure } from '../../common/azure/azure-image-upload';
-import { normalizeEmail } from '../../common/email/email-normalize.helper';
+import { normalizeEmail } from '../../common/email-builder';
 import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { In } from 'typeorm';
