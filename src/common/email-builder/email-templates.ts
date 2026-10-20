@@ -301,7 +301,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       padding: 24px 32px 28px;
       text-align: center;
     }
-    .cta-btn {
+    .cta-btn, a.cta-btn, a.cta-btn:visited, a.cta-btn:hover, a.cta-btn:active {
       display: inline-block;
       background-color: #0ea5e9 !important;
       color: #ffffff !important;
@@ -323,6 +323,10 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     .cta-btn svg, .cta-btn * {
       color: #ffffff !important;
       stroke: #ffffff !important;
+    }
+    a.fallback-link, a.fallback-link:visited {
+      color: #0284c7 !important;
+      text-decoration: none !important;
     }
     .cta-sub {
       margin-top: 12px;
@@ -414,10 +418,14 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
 
     /* ── Dark Mode Overrides (Standard OS prefers-color-scheme) ─────── */
     @media (prefers-color-scheme: dark) {
-      body, .outer-table {
+      body {
         background: #030712 !important;
         background-color: #030712 !important;
         color: #f8fafc !important;
+      }
+      .outer-table {
+        background: transparent !important;
+        background-color: transparent !important;
       }
       .wrapper, .email-card {
         background: #000000 !important;
@@ -482,7 +490,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       .cta-btn-cell {
         background-color: #0ea5e9 !important;
       }
-      .cta-btn {
+      .cta-btn, a.cta-btn, a.cta-btn:visited, a.cta-btn:hover, a.cta-btn:active {
         background-color: #0ea5e9 !important;
         color: #000000 !important;
       }
@@ -533,132 +541,12 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       .fallback-label {
         color: #94a3b8 !important;
       }
-      .fallback-url, .fallback-link {
+      .fallback-url, .fallback-link, a.fallback-link, a.fallback-link:visited {
         color: #38bdf8 !important;
       }
       .footer p {
         color: #64748b !important;
       }
-    }
-
-    /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
-    [data-ogsc] body, [data-ogsb] body, [data-ogsb] .outer-table {
-      background-color: #030712 !important;
-      color: #f8fafc !important;
-    }
-    [data-ogsb] .wrapper, [data-ogsb] .email-card {
-      background-color: #000000 !important;
-    }
-    [data-ogsc] .wrapper, [data-ogsc] .email-card {
-      border-color: #1e2d4d !important;
-    }
-    [data-ogsb] .header {
-      background-color: #050b17 !important;
-    }
-    [data-ogsc] .header {
-      border-bottom-color: #1e2d4d !important;
-    }
-    [data-ogsb] .hero {
-      background-color: #000000 !important;
-    }
-    [data-ogsb] .meta {
-      background-color: #000000 !important;
-    }
-    [data-ogsc] .meta {
-      border-top-color: #1e2d4d !important;
-    }
-    [data-ogsc] .meta-label, [data-ogsc] .meta-value {
-      border-bottom-color: #1e2d4d !important;
-    }
-    [data-ogsc] .meta-label {
-      color: #94a3b8 !important;
-    }
-    [data-ogsc] .meta-value {
-      color: #f8fafc !important;
-    }
-    [data-ogsc] .ticket-title {
-      color: #ffffff !important;
-    }
-    [data-ogsc] .ticket-desc {
-      color: #cbd5e1 !important;
-    }
-    [data-ogsc] .breadcrumb {
-      color: #94a3b8 !important;
-    }
-    [data-ogsc] .breadcrumb-item {
-      color: #38bdf8 !important;
-    }
-    [data-ogsc] .actor-text {
-      color: #94a3b8 !important;
-    }
-    [data-ogsc] .actor-text strong {
-      color: #ffffff !important;
-    }
-    [data-ogsb] .cta {
-      background-color: #000000 !important;
-    }
-    [data-ogsc] .cta {
-      border-top-color: #1e2d4d !important;
-    }
-    [data-ogsb] .cta-btn-cell {
-      background-color: #0ea5e9 !important;
-    }
-    [data-ogsb] .cta-btn {
-      background-color: #0ea5e9 !important;
-    }
-    [data-ogsc] .cta-btn, [data-ogsc] .cta-btn-text, [data-ogsc] .cta-btn-icon {
-      color: #000000 !important;
-      text-decoration: none !important;
-    }
-    [data-ogsc] .cta-btn svg, [data-ogsc] .cta-btn path {
-      stroke: #000000 !important;
-    }
-    [data-ogsc] .avatar, [data-ogsc] .user-avatar-initials {
-      color: #000000 !important;
-    }
-    [data-ogsc] .user-name {
-      color: #f8fafc !important;
-    }
-    [data-ogsb] .chip {
-      background-color: #091322 !important;
-    }
-    [data-ogsc] .chip {
-      color: #e2e8f0 !important;
-      border-color: #1e2d4d !important;
-    }
-    [data-ogsb] .chip-muted {
-      background-color: #091322 !important;
-    }
-    [data-ogsc] .chip-muted {
-      color: #64748b !important;
-    }
-    [data-ogsc] .chip-date-alert {
-      border-color: #ef4444 !important;
-      color: #f8fafc !important;
-    }
-    [data-ogsb] .code-box {
-      background-color: #070e1c !important;
-    }
-    [data-ogsc] .code-box {
-      border-color: #1e2d4d !important;
-    }
-    [data-ogsc] .code-text {
-      color: #38bdf8 !important;
-    }
-    [data-ogsb] .fallback-box {
-      background-color: #070e1c !important;
-    }
-    [data-ogsc] .fallback-box {
-      border-color: #1e2d4d !important;
-    }
-    [data-ogsc] .fallback-label {
-      color: #94a3b8 !important;
-    }
-    [data-ogsc] .fallback-url, [data-ogsc] .fallback-link {
-      color: #38bdf8 !important;
-    }
-    [data-ogsc] .footer p {
-      color: #64748b !important;
     }
 
     /* ── Explicit .dark Styles (For Theme Switcher) ─────────────────────── */
@@ -667,7 +555,8 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #f8fafc !important;
     }
     body.dark .outer-table, [data-theme="dark"] .outer-table, html.dark .outer-table {
-      background: #030712 !important;
+      background: transparent !important;
+      background-color: transparent !important;
     }
     body.dark .wrapper, [data-theme="dark"] .wrapper, html.dark .wrapper {
       background: #000000 !important;
@@ -791,7 +680,8 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #0f172a !important;
     }
     body.light .outer-table, [data-theme="light"] .outer-table, html.light .outer-table {
-      background: #f1f5f9 !important;
+      background: transparent !important;
+      background-color: transparent !important;
     }
     body.light .wrapper, [data-theme="light"] .wrapper, html.light .wrapper {
       background: #ffffff !important;
@@ -855,6 +745,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       background-color: #0ea5e9 !important;
     }
     body.light .cta-btn, [data-theme="light"] .cta-btn, html.light .cta-btn,
+    body.light a.cta-btn, body.light a.cta-btn:visited,
     body.light .cta-btn *, [data-theme="light"] .cta-btn *, html.light .cta-btn * {
       color: #ffffff !important;
       stroke: #ffffff !important;
@@ -896,7 +787,8 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #64748b !important;
     }
     body.light .fallback-url, [data-theme="light"] .fallback-url, html.light .fallback-url,
-    body.light .fallback-link, [data-theme="light"] .fallback-link, html.light .fallback-link {
+    body.light .fallback-link, [data-theme="light"] .fallback-link, html.light .fallback-link,
+    body.light a.fallback-link, body.light a.fallback-link:visited {
       color: #0284c7 !important;
     }
     body.light .footer p, [data-theme="light"] .footer p, html.light .footer p {
@@ -906,7 +798,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
 </head>
 <body bgcolor="#f1f5f9" style="margin:0;padding:32px 16px;background-color:#f1f5f9;color:#0f172a;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   <!-- Outer centering table for email client canvas -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f1f5f9" class="outer-table" style="background-color:#f1f5f9;width:100%;table-layout:fixed;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="outer-table" style="width:100%;table-layout:fixed;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
     <tr>
       <td align="center" valign="top" style="padding:0;">
         <!-- Card Container (max-width 600px) -->
