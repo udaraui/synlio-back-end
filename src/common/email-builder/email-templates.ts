@@ -412,127 +412,262 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       text-align: left !important;
     }
 
-    /* ── Dark Mode Overrides (OS prefers-color-scheme) ─────────────────── */
+    /* ── Dark Mode Overrides (Standard OS prefers-color-scheme) ─────── */
     @media (prefers-color-scheme: dark) {
-      body:not(.light):not([data-theme="light"]) {
+      body, .outer-table {
         background: #030712 !important;
+        background-color: #030712 !important;
         color: #f8fafc !important;
       }
-      body:not(.light):not([data-theme="light"]) .wrapper {
+      .wrapper, .email-card {
         background: #000000 !important;
+        background-color: #000000 !important;
         border-color: #1e2d4d !important;
         box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
       }
-      body:not(.light):not([data-theme="light"]) .header {
+      .header {
         background: #050b17 !important;
+        background-color: #050b17 !important;
         border-bottom: 1px solid #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .hero {
+      .hero {
         background: #000000 !important;
+        background-color: #000000 !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta {
+      .meta {
         background: #000000 !important;
+        background-color: #000000 !important;
         border-top-color: #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta-label,
-      body:not(.light):not([data-theme="light"]) .meta-value {
-        border-bottom: 1px solid #1e2d4d !important;
+      .meta-label, .meta-value {
+        border-bottom-color: #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta tr:last-child > td,
-      body:not(.light):not([data-theme="light"]) .meta-row-last > td {
+      .meta tr:last-child > td, .meta-row-last > td {
         border-bottom: none !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta table,
-      body:not(.light):not([data-theme="light"]) .meta table tr,
-      body:not(.light):not([data-theme="light"]) .meta table td {
+      .meta table, .meta table tr, .meta table td {
         border: none !important;
         border-bottom: none !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta-label {
+      .meta-label {
         color: #94a3b8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .meta-value {
+      .meta-value {
         color: #f8fafc !important;
       }
-      body:not(.light):not([data-theme="light"]) .ticket-title {
+      .ticket-title {
         color: #ffffff !important;
       }
-      body:not(.light):not([data-theme="light"]) .ticket-desc {
+      .ticket-desc {
         color: #cbd5e1 !important;
       }
-      body:not(.light):not([data-theme="light"]) .breadcrumb {
+      .breadcrumb {
         color: #94a3b8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .breadcrumb-item {
+      .breadcrumb-item {
         color: #38bdf8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .actor-text {
+      .actor-text {
         color: #94a3b8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .actor-text strong {
+      .actor-text strong {
         color: #ffffff !important;
       }
       /* Dark mode: button text and icons must be black */
-      body:not(.light):not([data-theme="light"]) .cta-btn,
-      body:not(.light):not([data-theme="light"]) .cta-btn *,
-      body:not(.light):not([data-theme="light"]) .cta-btn-text,
-      body:not(.light):not([data-theme="light"]) .cta-btn-icon {
-        color: #000000 !important;
-        stroke: #000000 !important;
-      }
-      /* Dark mode: avatar initials must be black */
-      body:not(.light):not([data-theme="light"]) .avatar,
-      body:not(.light):not([data-theme="light"]) .user-avatar-initials {
-        color: #000000 !important;
-      }
-      body:not(.light):not([data-theme="light"]) .user-name {
-        color: #f8fafc !important;
-      }
-      body:not(.light):not([data-theme="light"]) .cta {
+      .cta {
         background: #000000 !important;
+        background-color: #000000 !important;
         border-top-color: #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .chip {
+      .cta-btn-cell {
+        background-color: #0ea5e9 !important;
+      }
+      .cta-btn {
+        background-color: #0ea5e9 !important;
+        color: #000000 !important;
+      }
+      .cta-btn *, .cta-btn-text, .cta-btn-icon {
+        color: #000000 !important;
+        stroke: #000000 !important;
+        text-decoration: none !important;
+      }
+      /* Dark mode: avatar initials must be black */
+      .avatar, .user-avatar-initials {
+        color: #000000 !important;
+      }
+      .user-name {
+        color: #f8fafc !important;
+      }
+      .chip {
         background: #091322 !important;
+        background-color: #091322 !important;
         color: #e2e8f0 !important;
         border-color: #1e2d4d !important;
         box-shadow: none !important;
       }
-      body:not(.light):not([data-theme="light"]) .chip-muted {
+      .chip-muted {
         opacity: 0.6 !important;
         background: #091322 !important;
+        background-color: #091322 !important;
+        color: #64748b !important;
       }
-      body:not(.light):not([data-theme="light"]) .chip-date-alert {
+      .chip-date-alert {
         border-color: #ef4444 !important;
         color: #f8fafc !important;
         background: transparent !important;
+        background-color: transparent !important;
       }
-      body:not(.light):not([data-theme="light"]) .code-box {
+      .code-box {
         background: #070e1c !important;
+        background-color: #070e1c !important;
         border-color: #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .code-text {
+      .code-text {
         color: #38bdf8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .fallback-box {
+      .fallback-box {
+        background: #070e1c !important;
+        background-color: #070e1c !important;
         border-color: #1e2d4d !important;
       }
-      body:not(.light):not([data-theme="light"]) .fallback-label {
+      .fallback-label {
         color: #94a3b8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .fallback-url,
-      body:not(.light):not([data-theme="light"]) .fallback-link {
+      .fallback-url, .fallback-link {
         color: #38bdf8 !important;
       }
-      body:not(.light):not([data-theme="light"]) .footer p {
+      .footer p {
         color: #64748b !important;
       }
+    }
+
+    /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
+    [data-ogsc] body, [data-ogsb] body, [data-ogsb] .outer-table {
+      background-color: #030712 !important;
+      color: #f8fafc !important;
+    }
+    [data-ogsb] .wrapper, [data-ogsb] .email-card {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .wrapper, [data-ogsc] .email-card {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsb] .header {
+      background-color: #050b17 !important;
+    }
+    [data-ogsc] .header {
+      border-bottom-color: #1e2d4d !important;
+    }
+    [data-ogsb] .hero {
+      background-color: #000000 !important;
+    }
+    [data-ogsb] .meta {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .meta {
+      border-top-color: #1e2d4d !important;
+    }
+    [data-ogsc] .meta-label, [data-ogsc] .meta-value {
+      border-bottom-color: #1e2d4d !important;
+    }
+    [data-ogsc] .meta-label {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .meta-value {
+      color: #f8fafc !important;
+    }
+    [data-ogsc] .ticket-title {
+      color: #ffffff !important;
+    }
+    [data-ogsc] .ticket-desc {
+      color: #cbd5e1 !important;
+    }
+    [data-ogsc] .breadcrumb {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .breadcrumb-item {
+      color: #38bdf8 !important;
+    }
+    [data-ogsc] .actor-text {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .actor-text strong {
+      color: #ffffff !important;
+    }
+    [data-ogsb] .cta {
+      background-color: #000000 !important;
+    }
+    [data-ogsc] .cta {
+      border-top-color: #1e2d4d !important;
+    }
+    [data-ogsb] .cta-btn-cell {
+      background-color: #0ea5e9 !important;
+    }
+    [data-ogsb] .cta-btn {
+      background-color: #0ea5e9 !important;
+    }
+    [data-ogsc] .cta-btn, [data-ogsc] .cta-btn-text, [data-ogsc] .cta-btn-icon {
+      color: #000000 !important;
+      text-decoration: none !important;
+    }
+    [data-ogsc] .cta-btn svg, [data-ogsc] .cta-btn path {
+      stroke: #000000 !important;
+    }
+    [data-ogsc] .avatar, [data-ogsc] .user-avatar-initials {
+      color: #000000 !important;
+    }
+    [data-ogsc] .user-name {
+      color: #f8fafc !important;
+    }
+    [data-ogsb] .chip {
+      background-color: #091322 !important;
+    }
+    [data-ogsc] .chip {
+      color: #e2e8f0 !important;
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsb] .chip-muted {
+      background-color: #091322 !important;
+    }
+    [data-ogsc] .chip-muted {
+      color: #64748b !important;
+    }
+    [data-ogsc] .chip-date-alert {
+      border-color: #ef4444 !important;
+      color: #f8fafc !important;
+    }
+    [data-ogsb] .code-box {
+      background-color: #070e1c !important;
+    }
+    [data-ogsc] .code-box {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .code-text {
+      color: #38bdf8 !important;
+    }
+    [data-ogsb] .fallback-box {
+      background-color: #070e1c !important;
+    }
+    [data-ogsc] .fallback-box {
+      border-color: #1e2d4d !important;
+    }
+    [data-ogsc] .fallback-label {
+      color: #94a3b8 !important;
+    }
+    [data-ogsc] .fallback-url, [data-ogsc] .fallback-link {
+      color: #38bdf8 !important;
+    }
+    [data-ogsc] .footer p {
+      color: #64748b !important;
     }
 
     /* ── Explicit .dark Styles (For Theme Switcher) ─────────────────────── */
     body.dark, [data-theme="dark"] body, html.dark body {
       background: #030712 !important;
       color: #f8fafc !important;
+    }
+    body.dark .outer-table, [data-theme="dark"] .outer-table, html.dark .outer-table {
+      background: #030712 !important;
     }
     body.dark .wrapper, [data-theme="dark"] .wrapper, html.dark .wrapper {
       background: #000000 !important;
@@ -589,12 +724,20 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #ffffff !important;
     }
     /* Dark mode: button text and icons must be black */
+    body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
+      background: #000000 !important;
+      border-top-color: #1e2d4d !important;
+    }
+    body.dark .cta-btn-cell, [data-theme="dark"] .cta-btn-cell, html.dark .cta-btn-cell {
+      background-color: #0ea5e9 !important;
+    }
     body.dark .cta-btn, [data-theme="dark"] .cta-btn, html.dark .cta-btn,
     body.dark .cta-btn *, [data-theme="dark"] .cta-btn *, html.dark .cta-btn *,
     body.dark .cta-btn-text, [data-theme="dark"] .cta-btn-text, html.dark .cta-btn-text,
     body.dark .cta-btn-icon, [data-theme="dark"] .cta-btn-icon, html.dark .cta-btn-icon {
       color: #000000 !important;
       stroke: #000000 !important;
+      text-decoration: none !important;
     }
     /* Dark mode: avatar initials must be black */
     body.dark .avatar, [data-theme="dark"] .avatar, html.dark .avatar,
@@ -603,10 +746,6 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     }
     body.dark .user-name, [data-theme="dark"] .user-name, html.dark .user-name {
       color: #f8fafc !important;
-    }
-    body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
-      background: #000000 !important;
-      border-top-color: #1e2d4d !important;
     }
     body.dark .chip, [data-theme="dark"] .chip, html.dark .chip {
       background: #091322 !important;
@@ -617,6 +756,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     body.dark .chip-muted, [data-theme="dark"] .chip-muted, html.dark .chip-muted {
       opacity: 0.6 !important;
       background: #091322 !important;
+      color: #64748b !important;
     }
     body.dark .chip-date-alert, [data-theme="dark"] .chip-date-alert, html.dark .chip-date-alert {
       border-color: #ef4444 !important;
@@ -631,6 +771,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #38bdf8 !important;
     }
     body.dark .fallback-box, [data-theme="dark"] .fallback-box, html.dark .fallback-box {
+      background: #070e1c !important;
       border-color: #1e2d4d !important;
     }
     body.dark .fallback-label, [data-theme="dark"] .fallback-label, html.dark .fallback-label {
@@ -648,6 +789,9 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     body.light, [data-theme="light"] body, html.light body {
       background: #f1f5f9 !important;
       color: #0f172a !important;
+    }
+    body.light .outer-table, [data-theme="light"] .outer-table, html.light .outer-table {
+      background: #f1f5f9 !important;
     }
     body.light .wrapper, [data-theme="light"] .wrapper, html.light .wrapper {
       background: #ffffff !important;
@@ -703,10 +847,18 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     body.light .actor-text strong, [data-theme="light"] .actor-text strong, html.light .actor-text strong {
       color: #0f172a !important;
     }
+    body.light .cta, [data-theme="light"] .cta, html.light .cta {
+      background: #ffffff !important;
+      border-top-color: #f1f5f9 !important;
+    }
+    body.light .cta-btn-cell, [data-theme="light"] .cta-btn-cell, html.light .cta-btn-cell {
+      background-color: #0ea5e9 !important;
+    }
     body.light .cta-btn, [data-theme="light"] .cta-btn, html.light .cta-btn,
     body.light .cta-btn *, [data-theme="light"] .cta-btn *, html.light .cta-btn * {
       color: #ffffff !important;
       stroke: #ffffff !important;
+      text-decoration: none !important;
     }
     body.light .avatar, [data-theme="light"] .avatar, html.light .avatar,
     body.light .user-avatar-initials, [data-theme="light"] .user-avatar-initials, html.light .user-avatar-initials {
@@ -714,10 +866,6 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     }
     body.light .user-name, [data-theme="light"] .user-name, html.light .user-name {
       color: #0f172a !important;
-    }
-    body.light .cta, [data-theme="light"] .cta, html.light .cta {
-      background: #ffffff !important;
-      border-top-color: #f1f5f9 !important;
     }
     body.light .chip, [data-theme="light"] .chip, html.light .chip {
       background: #ffffff !important;
@@ -741,6 +889,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
       color: #0f172a !important;
     }
     body.light .fallback-box, [data-theme="light"] .fallback-box, html.light .fallback-box {
+      background: transparent !important;
       border-color: #e2e8f0 !important;
     }
     body.light .fallback-label, [data-theme="light"] .fallback-label, html.light .fallback-label {
@@ -753,38 +902,49 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     body.light .footer p, [data-theme="light"] .footer p, html.light .footer p {
       color: #94a3b8 !important;
     }
-
-    [data-ogsc] body { background: #030712 !important; }
   </style>
 </head>
-<body>
-<div class="wrapper">
-  <!-- Brand Header: Matches Synlio Deep Navy (#0b1329 light, #050b17 dark) -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="header" bgcolor="#0b1329" style="border-collapse:collapse;border-bottom:1px solid #0b1329;">
+<body bgcolor="#f1f5f9" style="margin:0;padding:32px 16px;background-color:#f1f5f9;color:#0f172a;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <!-- Outer centering table for email client canvas -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f1f5f9" class="outer-table" style="background-color:#f1f5f9;width:100%;table-layout:fixed;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
     <tr>
-      <td valign="middle" align="left" style="padding:18px 32px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+      <td align="center" valign="top" style="padding:0;">
+        <!-- Card Container (max-width 600px) -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#ffffff" class="wrapper email-card" style="max-width:600px;width:100%;margin:0 auto;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px -2px rgba(15,23,42,0.06);border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+          <!-- Header -->
           <tr>
-            <td valign="middle" style="padding-right:10px;">
-              <img class="brand-icon" src="${getSynlioLogoUrl()}" alt="Synlio" width="28" height="28" style="display:block;width:28px;height:28px;object-fit:contain;"/>
+            <td bgcolor="#0b1329" class="header" style="background-color:#0b1329;padding:18px 32px;border-bottom:1px solid #0b1329;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+                <tr>
+                  <td valign="middle" style="padding-right:10px;">
+                    <img class="brand-icon" src="${getSynlioLogoUrl()}" alt="Synlio" width="28" height="28" style="display:block;width:28px;height:28px;object-fit:contain;border:0;outline:none;"/>
+                  </td>
+                  <td valign="middle">
+                    <span class="brand-name" style="font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:600;color:#f8fafc;letter-spacing:0.05em;line-height:28px;">Synlio</span>
+                  </td>
+                </tr>
+              </table>
             </td>
-            <td valign="middle">
-              <span class="brand-name">Synlio</span>
+          </tr>
+          <!-- Body Content -->
+          <tr>
+            <td style="padding:0;">
+              ${bodyHtml}
+            </td>
+          </tr>
+        </table>
+
+        <!-- Email Client Footer -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="max-width:600px;margin:24px auto 0;text-align:center;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+          <tr>
+            <td align="center" class="footer" style="padding:0 16px 8px;text-align:center;">
+              ${footerTextHtml || `<p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.8;font-family:'Plus Jakarta Sans',sans-serif;">&copy; ${new Date().getFullYear()} Synlio. All rights reserved.</p>`}
             </td>
           </tr>
         </table>
       </td>
     </tr>
   </table>
-
-  <!-- Main Email Body -->
-  ${bodyHtml}
-</div>
-
-<!-- Email Client Footer -->
-<div class="footer">
-  ${footerTextHtml || `<p>&copy; ${new Date().getFullYear()} Synlio. All rights reserved.</p>`}
-</div>
 </body>
 </html>`;
 }
@@ -830,9 +990,9 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   if (breadcrumb) {
     const parts = breadcrumb.split('/');
     if (parts.length > 1) {
-      breadcrumbHtml = `<div class="breadcrumb">${parts[0].trim()} &nbsp;<span style="color:#94a3b8;font-weight:normal;">/</span>&nbsp; <span class="breadcrumb-item">${parts.slice(1).join('/').trim()}</span></div>`;
+      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;">${parts[0].trim()} &nbsp;<span style="color:#94a3b8;font-weight:normal;">/</span>&nbsp; <span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${parts.slice(1).join('/').trim()}</span></div>`;
     } else {
-      breadcrumbHtml = `<div class="breadcrumb"><span class="breadcrumb-item">${breadcrumb}</span></div>`;
+      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;"><span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${breadcrumb}</span></div>`;
     }
   }
 
@@ -840,16 +1000,16 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   if (actorName || actionSentence) {
     const avatarHtml = actorProfilePicUrl
       ? `<img class="avatar" src="${actorProfilePicUrl}" alt="${actorName}" width="28" height="28" style="display:block;border-radius:50%;object-fit:cover;"/>`
-      : `<span class="avatar">${actorInitials}</span>`;
+      : `<span class="avatar user-avatar-initials" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;background-color:#0ea5e9;color:#ffffff;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;text-align:center;line-height:28px;">${actorInitials}</span>`;
 
-    const sentence = actionSentence || `<strong>${actorName}</strong> updated this project`;
+    const sentence = actionSentence || `<strong style="color:#0f172a;font-weight:600;">${actorName}</strong> updated this project`;
 
     actorRowHtml = `
-      <div class="actor-row">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+      <div class="actor-row" style="margin-top:10px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
             <td valign="middle" style="padding-right:10px;">${avatarHtml}</td>
-            <td valign="middle"><div class="actor-text">${sentence}</div></td>
+            <td valign="middle"><div class="actor-text" style="font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.5;">${sentence}</div></td>
           </tr>
         </table>
       </div>
@@ -858,7 +1018,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
 
   let descriptionHtml = '';
   if (description) {
-    descriptionHtml = `<p class="ticket-desc">${description}</p>`;
+    descriptionHtml = `<p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0 0 14px 0;font-family:'Plus Jakarta Sans',sans-serif;">${description}</p>`;
   }
 
   let metaHtml = '';
@@ -866,10 +1026,11 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
     const rowsHtml = metaRows.map((row, i) => {
       const isLast = i === metaRows.length - 1;
       const cls = isLast ? 'meta-row-last' : 'meta-row';
-      return `<tr class="${cls}"><td class="meta-label" width="120" valign="middle">${row.label}</td><td class="meta-value" valign="middle">${row.valueHtml}</td></tr>`;
+      const borderStyle = isLast ? 'border-bottom:none !important;' : 'border-bottom:1px solid #f1f5f9;';
+      return `<tr class="${cls}"><td class="meta-label" width="120" valign="middle" style="width:120px;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 16px 12px 32px;vertical-align:middle;text-align:left;${borderStyle}">${row.label}</td><td class="meta-value" valign="middle" style="font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 32px 12px 16px;vertical-align:middle;text-align:right;${borderStyle}">${row.valueHtml}</td></tr>`;
     }).join('');
 
-    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta">${rowsHtml}</table>`;
+    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;border-collapse:collapse;width:100%;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
   }
 
   let ctaHtml = '';
@@ -878,11 +1039,17 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
     const arrowUpRight = withMsoIconFallback(arrowSvg, '&#8599;', 'font-size:13px;vertical-align:middle;margin-left:4px;');
 
     ctaHtml = `
-      <div class="cta">
-        <a href="${ctaUrl}" class="cta-btn" style="text-decoration:none;border-bottom:none;">
-          <span class="cta-btn-text">${ctaLabel}</span>&nbsp;${arrowUpRight}
-        </a>
-        ${ctaSubTextHtml ? `<p class="cta-sub">${ctaSubTextHtml}</p>` : ''}
+      <div class="cta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;padding:24px 32px 28px;text-align:center;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+          <tr>
+            <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;border-radius:6px;mso-padding-alt:10px 24px;">
+              <a href="${ctaUrl}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
+                <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;">${ctaLabel}</span>&nbsp;<span class="cta-btn-icon" style="color:#ffffff !important;text-decoration:none !important;font-size:13px;vertical-align:middle;">${arrowUpRight}</span>
+              </a>
+            </td>
+          </tr>
+        </table>
+        ${ctaSubTextHtml ? `<p class="cta-sub" style="margin-top:12px;font-size:12px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;">${ctaSubTextHtml}</p>` : ''}
       </div>
     `;
   } else {
@@ -890,9 +1057,9 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   }
 
   const bodyHtml = `
-    <div class="hero">
+    <div class="hero" style="background-color:#ffffff;padding:24px 32px 20px;">
       ${breadcrumbHtml}
-      <h1 class="ticket-title">${title}</h1>
+      <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">${title}</h1>
       ${descriptionHtml}
       ${actorRowHtml}
       ${customDetailBlockHtml || ''}
@@ -925,24 +1092,24 @@ export function buildVerificationEmailHtml(options: VerificationEmailOptions): s
   const { verificationCode, expiryMinutes = 15 } = options;
 
   const bodyHtml = `
-    <div class="hero" style="padding:28px 32px 36px;">
-      <h1 class="ticket-title" style="margin-bottom:12px;font-size:20px;">Verify your email address</h1>
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:12px;" class="ticket-desc">
+    <div class="hero" style="background-color:#ffffff;padding:28px 32px 36px;">
+      <h1 class="ticket-title" style="margin:0 0 12px 0;font-size:20px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Verify your email address</h1>
+      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 12px 0;" class="ticket-desc">
         Thanks for signing up for Synlio! Enter the verification code below to confirm your account and get started.
       </p>
-      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:16px;">
+      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 16px 0;">
         If you did not request this email, you can safely ignore it.
       </p>
 
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:24px;" class="ticket-desc">
-        This code will expire in <strong style="color:#0f172a;" class="actor-text">${expiryMinutes} minutes</strong>
+      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 24px 0;" class="ticket-desc">
+        This code will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text">${expiryMinutes} minutes</strong>
       </p>
 
       <!-- OTP Digits Card -->
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px auto 0;text-align:center;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto 0;text-align:center;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
         <tr>
-          <td class="code-box">
-            <span class="code-text">${verificationCode}</span>
+          <td class="code-box" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px 36px;text-align:center;">
+            <span class="code-text" style="font-family:'DM Mono',SFMono-Regular,Consolas,monospace;font-size:34px;font-weight:700;letter-spacing:10px;color:#0f172a;display:inline-block;">${verificationCode}</span>
           </td>
         </tr>
       </table>
@@ -972,33 +1139,37 @@ export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions):
   const arrowUpRight = withMsoIconFallback(arrowSvg, '&#8599;', 'font-size:13px;vertical-align:middle;margin-left:4px;');
 
   const bodyHtml = `
-    <div class="hero" style="padding:28px 32px 36px;">
-      <h1 class="ticket-title" style="margin-bottom:12px;font-size:20px;">Reset your password</h1>
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:12px;" class="ticket-desc">
+    <div class="hero" style="background-color:#ffffff;padding:28px 32px 36px;">
+      <h1 class="ticket-title" style="margin:0 0 12px 0;font-size:20px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Reset your password</h1>
+      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 12px 0;" class="ticket-desc">
         We received a request to reset the password for your Synlio account. Click the button below to choose a new password.
       </p>
-      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:16px;">
+      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 16px 0;">
         If you did not request this email, you can safely ignore it.
       </p>
 
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:24px;" class="ticket-desc">
-        This link will expire in <strong style="color:#0f172a;" class="actor-text">${expiryHours} hour${expiryHours > 1 ? 's' : ''}</strong>
+      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 24px 0;" class="ticket-desc">
+        This link will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text">${expiryHours} hour${expiryHours > 1 ? 's' : ''}</strong>
       </p>
 
-      <!-- CTA Button -->
-      <div style="text-align:center;margin:28px 0 24px;">
-        <a href="${resetLink}" class="cta-btn" style="text-decoration:none;border-bottom:none;">
-          <span class="cta-btn-text">Reset Password</span>&nbsp;${arrowUpRight}
-        </a>
-      </div>
+      <!-- Bulletproof CTA Button (Table + inline styles for Outlook, Gmail, Apple Mail) -->
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 24px;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+        <tr>
+          <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;border-radius:6px;mso-padding-alt:10px 24px;">
+            <a href="${resetLink}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
+              <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;">Reset Password</span>&nbsp;<span class="cta-btn-icon" style="color:#ffffff !important;text-decoration:none !important;font-size:13px;vertical-align:middle;">${arrowUpRight}</span>
+            </a>
+          </td>
+        </tr>
+      </table>
 
       <!-- Fallback URL Card -->
-      <div class="fallback-box">
+      <div class="fallback-box" style="border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-top:24px;text-align:left;background-color:transparent;">
         <span style="display:block;font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:6px;" class="fallback-label">
           If the button doesn't work, click the link below:
         </span>
         <span style="display:block;font-size:13px;color:#0284c7;word-break:break-all;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.5;" class="fallback-url">
-          <a href="${resetLink}" style="color:#0284c7;text-decoration:none;" class="fallback-link">${resetLink}</a>
+          <a href="${resetLink}" target="_blank" style="color:#0284c7;text-decoration:none;" class="fallback-link">${resetLink}</a>
         </span>
       </div>
     </div>
