@@ -27,11 +27,12 @@ export class AiController {
     @Body('agent') agent?: string,
     @Body('context') context?: any,
     @Body('chatMode') chatMode?: string,
+    @Body('history') history?: Array<{ role: string; content: string }>,
   ) {
     const user = req.user;
     const companyId = Number(selectedCompanyHeader || req.activeCompany?.companyId || 0);
 
-    const stream = await this.aiService.processChat(message, conversationId, user, companyId, agent, context, chatMode);
+    const stream = await this.aiService.processChat(message, conversationId, user, companyId, agent, context, chatMode, history);
     
     // Set proper headers to ensure the browser and Express don't buffer the stream
     res.setHeader('Content-Type', 'text/event-stream');

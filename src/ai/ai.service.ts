@@ -19,6 +19,7 @@ export class AiService {
     agent?: string,
     context?: any,
     chatMode?: string,
+    history?: Array<{ role: string; content: string }>,
   ): Promise<any> {
     try {
       const aiServiceUrl = process.env.AI_SERVICE_URL;
@@ -81,6 +82,7 @@ export class AiService {
         company_id: companyId,
         agent,
         context,
+        history,
         scope: {
           allowed_ticket_space_ids: allowedTicketSpaceIds,
           allowed_task_space_ids: allowedTaskSpaceIds,
