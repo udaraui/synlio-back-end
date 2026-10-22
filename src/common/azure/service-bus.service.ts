@@ -16,11 +16,14 @@ import { EmailClient } from '@azure/communication-email';
 import { Email } from '../../alert/email/email.entity';
 import { Notification } from '../../alert/notification/notification.entity';
 import { WebPubSubService } from './web-pubsub.service';
+import { AiAuditLog } from '../../ai/ai-audit-log.entity';
+import { AiAuditPayloadDto } from '../../ai/dto/ai-audit-payload.dto';
 
 // ── Message shapes ─────────────────────────────────────────────────────────
 type EmailMessage = { type: 'email'; id: number };
 type NotificationMessage = { type: 'notification'; id: number };
-type QueueMessage = EmailMessage | NotificationMessage;
+export type AiAuditMessage = { type: 'ai_audit'; payload: AiAuditPayloadDto };
+export type QueueMessage = EmailMessage | NotificationMessage | AiAuditMessage;
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Maximum allowed email payload — 40 MB */
@@ -81,6 +84,8 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
               await this.processEmailMessage(body.id);
             } else if (body.type === 'notification') {
               await this.processNotificationMessage(body.id);
+            } else if (body.type === 'ai_audit') {
+              await this.processAiAuditMessage(body.payload);
             } else {
               this.logger.warn(
                 `Unknown message type — body: ${JSON.stringify(body)}`,
@@ -157,6 +162,22 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `Notification job enqueued — notificationId: ${notificationId}`,
     );
+  }
+
+  async sendAiAuditJob(payload: AiAuditPayloadDto): Promise<void> {
+    try {
+      const body: AiAuditMessage = {
+        type: 'ai_audit',
+        payload,
+      };
+      await this.sender.sendMessages({ body, contentType: 'application/json' });
+      this.logger.log(`AI audit job enqueued — requestId: ${payload?.requestId}`);
+    } catch (err: any) {
+      this.logger.error(
+        `Failed to enqueue AI audit job for requestId: ${payload?.requestId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
   }
 
   // ------------------------------------------------------------------ //
@@ -330,5 +351,41 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // ------------------------------------------------------------------ //
+  //  Consumer — AI Audit Log
+  // ------------------------------------------------------------------ //
 
+  private async processAiAuditMessage(payload: AiAuditPayloadDto): Promise<void> {
+    if (!payload || !payload.requestId) {
+      this.logger.warn(`Invalid AI audit payload — skipping`);
+      return;
+    }
+
+    this.logger.log(`Processing AI audit message — requestId: ${payload.requestId}`);
+
+    try {
+      const repo = this.entityManager.getRepository(AiAuditLog);
+      const rawIdent = payload.userId
+        ? String(payload.userId)
+        : (payload.userEmail ?? 'system');
+      const userIdent = rawIdent.slice(0, 50);
+
+      const entity = repo.create({
+        ...payload,
+        createdBy: userIdent,
+        updatedBy: userIdent,
+      });
+
+      await repo.save(entity);
+      this.logger.log(
+        `Successfully saved AI audit log — id: ${entity.id}, requestId: ${payload.requestId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to save AI audit log for requestId: ${payload?.requestId}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
+  }
 }

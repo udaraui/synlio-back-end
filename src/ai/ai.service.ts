@@ -5,7 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { getOrBuildVisibilityCache } from '../task-management/guards/visibility-cache.util';
 
 @Injectable()
-export class ChatService {
+export class AiService {
   constructor(
     private readonly entityManager: EntityManager,
     private readonly redisService: RedisService,
@@ -14,10 +14,11 @@ export class ChatService {
   async processChat(
     message: string,
     conversationId?: string,
-    user?: { userId?: number; email?: string; [key: string]: any },
+    user?: { userId?: number; email?: string; username?: string; [key: string]: any },
     companyId: number = 0,
     agent?: string,
     context?: any,
+    chatMode?: string,
   ): Promise<any> {
     try {
       const aiServiceUrl = process.env.AI_SERVICE_URL;
@@ -65,7 +66,7 @@ export class ChatService {
             }
           }
         } catch (err) {
-          console.error('Error fetching task visibility cache in ChatService:', err);
+          console.error('Error fetching task visibility cache in AiService:', err);
         }
       }
 
@@ -75,6 +76,8 @@ export class ChatService {
         conversation_id: conversationId,
         user_id: user?.userId,
         user_email: user?.email,
+        user_name: user?.username,
+        chat_mode: chatMode || 'panel',
         company_id: companyId,
         agent,
         context,

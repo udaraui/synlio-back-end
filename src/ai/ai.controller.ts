@@ -1,14 +1,20 @@
-import { Body, Controller, Post, UseGuards, Res, Req, Headers } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards, Res, Req, Headers, HttpStatus, HttpCode } from '@nestjs/common';
 import type { Response } from 'express';
-import { ChatService } from './chat.service';
+import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.gurard';
 import { AuthorizationGuard } from '../authorization/decorator/authorization.guard';
 import { AuthorizationPermissions } from '../authorization/decorator/authorization-permissions.decorator';
+import { Public } from '../auth/public.decorator';
+import { ServiceBusService } from '../common/azure/service-bus.service';
+import { AiAuditPayloadDto } from './dto/ai-audit-payload.dto';
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard, AuthorizationGuard)
-export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+export class AiController {
+  constructor(
+    private readonly aiService: AiService,
+    private readonly serviceBusService: ServiceBusService,
+  ) {}
 
   @Post()
   @AuthorizationPermissions('120')
@@ -20,11 +26,12 @@ export class ChatController {
     @Res() res: Response,
     @Body('agent') agent?: string,
     @Body('context') context?: any,
+    @Body('chatMode') chatMode?: string,
   ) {
     const user = req.user;
     const companyId = Number(selectedCompanyHeader || req.activeCompany?.companyId || 0);
 
-    const stream = await this.chatService.processChat(message, conversationId, user, companyId, agent, context);
+    const stream = await this.aiService.processChat(message, conversationId, user, companyId, agent, context, chatMode);
     
     // Set proper headers to ensure the browser and Express don't buffer the stream
     res.setHeader('Content-Type', 'text/event-stream');
@@ -32,5 +39,13 @@ export class ChatController {
     res.setHeader('Connection', 'keep-alive');
     
     stream.pipe(res);
+  }
+
+  @Public()
+  @Post('internal/audit-telemetry')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async recordAuditTelemetry(@Body() payload: AiAuditPayloadDto) {
+    await this.serviceBusService.sendAiAuditJob(payload);
+    return { status: 'enqueued', requestId: payload?.requestId };
   }
 }
