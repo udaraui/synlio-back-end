@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
-import { EntityManager, ILike, Brackets } from 'typeorm';
+import { EntityManager, ILike, Brackets, FindOptionsWhere } from 'typeorm';
 import { CreateResourceDto, UpdateResourceDto } from './dto/resource.dto';
 import { Calendar } from '../calendar/calendar.entity';
 import { Resource, ResourceType } from './resource.entity';
@@ -134,10 +134,31 @@ export class ResourceService {
           );
         }
 
+        const normalizedEmail = data.email ? normalizeEmail(data.email) : null;
+        if (normalizedEmail) {
+          const emailWhere: FindOptionsWhere<Resource> = {
+            email: normalizedEmail,
+          };
+          if (targetCompanyId && targetCompanyId !== 0) {
+            emailWhere.companyId = targetCompanyId;
+          }
+
+          const existingResource = await transactionalEntityManager.findOne(
+            Resource,
+            { where: emailWhere },
+          );
+
+          if (existingResource) {
+            throw new BadRequestException(
+              `A resource with email '${data.email}' already exists.`,
+            );
+          }
+        }
+
         const resource = transactionalEntityManager.create(Resource, {
           first_name: data.first_name,
           last_name: data.last_name,
-          email: data.email ? normalizeEmail(data.email) : data.email,
+          email: normalizedEmail ?? data.email,
           working_hours: data.working_hours,
           mobile: data.mobile,
           company: companyData,

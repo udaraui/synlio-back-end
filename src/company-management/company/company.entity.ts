@@ -1,4 +1,4 @@
-import { Column, Entity, ManyToMany, OneToMany } from 'typeorm';
+import { Column, Entity, Index, ManyToMany, OneToMany } from 'typeorm';
 import { Division } from '../division/division.entity';
 import { ActiveStatus } from '../../common/enum/status.enum';
 import { BaseEntity } from '../../common/base/base.entity';
@@ -15,6 +15,7 @@ export class Company extends BaseEntity {
   @Column()
   company: string;
 
+  @Index('UQ_company_company_code', { unique: true })
   @Column()
   company_code: string;
 

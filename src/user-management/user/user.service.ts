@@ -612,39 +612,26 @@ export class UserService {
   }
 
   async getUserById(id: number, companyId?: number) {
-    const where: any = { id: id };
+    const qb = this.entityManager
+      .createQueryBuilder(User, 'user')
+      .where('user.id = :id', { id })
+      .leftJoinAndSelect('user.companies', 'companies')
+      .leftJoinAndSelect('user.divisions', 'divisions')
+      .leftJoinAndSelect('user.userCompanyRoles', 'userCompanyRoles')
+      .leftJoinAndSelect('userCompanyRoles.company', 'company')
+      .leftJoinAndSelect('userCompanyRoles.role', 'role')
+      .leftJoinAndSelect('role.privileges', 'privileges');
 
-    // If companyId is provided (and not system scope), ensure user belongs to it
     if (companyId && companyId !== 0) {
-      where.companies = { id: companyId };
+      qb.innerJoin(
+        'user.companies',
+        'filterCompany',
+        'filterCompany.id = :companyId',
+        { companyId },
+      );
     }
 
-    const user = await this.entityManager.findOne(User, {
-      where,
-      relationLoadStrategy: 'query',
-      relations: [
-        'companies',
-        'divisions',
-        'userCompanyRoles',
-        'userCompanyRoles.role',
-        'userCompanyRoles.company',
-        'userCompanyRoles.role.privileges',
-      ],
-      select: {
-        id: true,
-        first_name: true,
-        last_name: true,
-        email: true,
-        mobile_number: true,
-        profile_picture: true,
-        isActive: true,
-        password: true,
-        createdAt: true,
-        updatedAt: true,
-        createdBy: true,
-        updatedBy: true,
-      },
-    });
+    const user = await qb.getOne();
 
     if (!user) {
       return null;
@@ -654,23 +641,19 @@ export class UserService {
 
     let userCompanyRoles = user.userCompanyRoles || [];
 
-    // 👇 FIX: Filter the roles array to only include the active company
+    // Filter the roles array to only include the active company
     if (companyId && companyId !== 0) {
       userCompanyRoles = userCompanyRoles.filter(
-        (ucr) => ucr.company?.id === companyId,
+        (ucr) => ucr.company?.id === companyId || (ucr as any).companyId === companyId,
       );
     }
 
     const divisions = user.divisions;
 
-    // These will now ONLY map the roles and companies for the active companyId
     const roles = userCompanyRoles.map((ucr) => ucr.role);
     const companies = userCompanyRoles.map((ucr) => ucr.company);
 
-    // Note: if you wanted to return a distinct list of companies without duplicates,
-    // you might want to use the native `user.companies.filter(c => c.id === companyId)` instead.
-
-    return { ...userData, companies, divisions, roles };
+    return { ...userData, companies, divisions, roles, userCompanyRoles };
   }
 
   async getOnlyUserById(id: number) {

@@ -11,6 +11,7 @@ import { jwtConstants } from './constants';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import axios from 'axios';
 import * as crypto from 'crypto';
 import { UserService } from '../user-management/user/user.service';
 import { UserPrivilegeView } from '../user-management/user/user-privilege-view/user-privilege.entity';
@@ -35,6 +36,7 @@ import { Division } from '../company-management/division/division.entity';
 import { uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
 import { Resource } from '../resource-management/resource/resource.entity';
 import { UserRegistrationSource } from 'src/common/enum/user-registration-source.enum';
+import { generateUniqueCompanyCode } from '../common/utils/company-code.util';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -138,6 +140,81 @@ export class AuthService {
       refresh_token,
       return_user,
     };
+  }
+
+  /**
+   * Authenticates a user with a Google OAuth access token.
+   * Creates the user on first sign-in, then issues the standard Synlio JWTs
+   * via `login()` so the response matches the email/password login.
+   */
+  async googleLogin(access_token: string) {
+    if (!access_token) {
+      throw new BadRequestException('Google access token is required');
+    }
+
+    // 1. Fetch the profile from Google
+    let googleUser: {
+      email?: string;
+      email_verified?: boolean;
+      given_name?: string;
+      family_name?: string;
+      picture?: string;
+    };
+    try {
+      const { data } = await axios.get(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        { headers: { Authorization: `Bearer ${access_token}` } },
+      );
+      googleUser = data;
+    } catch (error) {
+      this.logger.warn(`Google userinfo request failed: ${(error as Error).message}`);
+      throw new UnauthorizedException('Invalid Google access token');
+    }
+
+    // 2. Extract the fields we need
+    const { email, given_name, family_name, picture, email_verified } = googleUser;
+    if (!email) {
+      throw new UnauthorizedException('Google account has no email address');
+    }
+    // Never link/create accounts on an unverified email
+    if (email_verified === false) {
+      throw new UnauthorizedException('Google email address is not verified');
+    }
+    const normalizedEmail = normalizeEmail(email);
+
+    // 3. Look up an existing user
+    let user = await this.entityManager.findOne(User, {
+      where: { email: normalizedEmail },
+    });
+
+    if (user) {
+      if (!user.isActive) {
+        throw new ForbiddenException('This account is inactive');
+      }
+      if (!user.profile_picture && picture) {
+        user.profile_picture = picture;
+        user.updatedBy = normalizedEmail;
+        user = await this.entityManager.save(User, user);
+      }
+    } else {
+      // 4. First-time Google sign-in: create the user.
+      // `password` is NOT NULL, so store a hash of a random, unknown secret.
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const newUser = this.entityManager.create(User, {
+        email: normalizedEmail,
+        first_name: given_name || normalizedEmail.split('@')[0],
+        last_name: family_name || '',
+        profile_picture: picture,
+        password: await bcrypt.hash(randomPassword, 10),
+        isActive: true,
+        registrationSource: UserRegistrationSource.SELF_REGISTERED,
+        createdBy: normalizedEmail,
+      });
+      user = await this.entityManager.save(User, newUser);
+    }
+
+    // 5 & 6. Issue the standard JWTs (and store the refresh token)
+    return this.login(user);
   }
 
   async updateRefreshToken(userId: number, refreshToken: string | undefined) {
@@ -502,17 +579,13 @@ export class AuthService {
       undefined
     );
 
-    // 3. Create Company
+    // 3. Create Company (company code is auto-generated from the company name)
     const companyRes = await this.onboardingCreateCompany(
       dto.company_name,
-      dto.company_code,
       { email: user.email, userId: user.id },
-      companyProfilePicture
+      companyProfilePicture,
+      dto.company_address,
     );
-
-    if (dto.company_address) {
-      await this.entityManager.update(Company, companyRes.companyId, { address: dto.company_address });
-    }
 
     // 4. Setup Admin Role
     const loginResult = await this.onboardingSetupAdminRole(
@@ -531,22 +604,33 @@ export class AuthService {
    */
   async onboardingCreateCompany(
     company_name: string,
-    company_code: string,
     authUser: any,
-    companyProfilePicture?: Express.Multer.File
+    companyProfilePicture?: Express.Multer.File,
+    companyAddress?: string,
   ): Promise<{ companyId: number; message: string }> {
-
-
-    // 2. Create the company with is_self_registered_company always true
-    const company = this.entityManager.create(Company, {
-      company: company_name,
-      company_code,
-      is_self_registered_company: true, // server-enforced
-      isActive: ActiveStatus.ACTIVE,
-      createdBy: authUser.email,
-    });
-
-    let saved = await this.entityManager.save(Company, company);
+    // Create the company with a server-generated unique 5-letter code and
+    // is_self_registered_company always true. Retry if another company grabs the
+    // same code concurrently (unique_violation).
+    let saved: Company | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const company = this.entityManager.create(Company, {
+        company: company_name,
+        company_code: await generateUniqueCompanyCode(this.entityManager, company_name),
+        is_self_registered_company: true, // server-enforced
+        ...(companyAddress?.trim() ? { address: companyAddress.trim() } : {}),
+        isActive: ActiveStatus.ACTIVE,
+        createdBy: authUser.email,
+      });
+      try {
+        saved = await this.entityManager.save(Company, company);
+        break;
+      } catch (error: any) {
+        if (error?.code !== '23505' || attempt === 2) throw error;
+      }
+    }
+    if (!saved) {
+      throw new BadRequestException('Unable to generate a unique company code');
+    }
 
     // 3. Upload Company Profile Picture
     if (companyProfilePicture) {

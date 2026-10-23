@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class OnboardingCreateCompanyDto {
   @IsString()
@@ -6,10 +6,16 @@ export class OnboardingCreateCompanyDto {
   @MaxLength(200)
   company_name: string;
 
+  /** Ignored — the company code is auto-generated from the company name. */
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(50)
-  company_code: string;
+  company_code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  company_address?: string;
 }
 
 export class OnboardingSetupAdminRoleDto {
