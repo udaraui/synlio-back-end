@@ -82,6 +82,28 @@ export class AuthController {
     });
   }
 
+  @Public()
+  @Post('google')
+  async googleLogin(
+    @Body() body: { access_token: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.googleLogin(body?.access_token);
+
+    res.cookie('refreshToken', result.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return {
+      message: 'Logged in',
+      access_token: result.access_token,
+      return_user: result.return_user,
+    };
+  }
+
   // @Post('logout')
   // async logout(@Res() res: Response, @Req() req: Request) {
   //   // Clear cookies
@@ -238,9 +260,9 @@ export class AuthController {
   ) {
     return this.authService.onboardingCreateCompany(
       dto.company_name,
-      dto.company_code,
       req.user,
-      files?.companyProfilePicture?.[0]
+      files?.companyProfilePicture?.[0],
+      dto.company_address,
     );
   }
 

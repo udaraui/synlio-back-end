@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ActiveStatus } from '../../../common/enum/status.enum';
@@ -22,12 +23,24 @@ export class CreateCompanyDto {
   company: string;
 
   @ApiProperty({
-    description: 'The code of the company',
-    example: 'C1',
+    description:
+      'Ignored. The company code is auto-generated (unique, 5 letters) from the company name.',
+    example: 'COMPA',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  company_code: string;
+  @IsOptional()
+  company_code?: string;
+
+  @ApiProperty({
+    description: 'The address of the company',
+    example: '123 Main St, Colombo',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  address?: string;
 
   @ApiProperty({
     description: 'The logo of the company',
@@ -76,50 +89,65 @@ export class UpdateCompanyDto {
   @ApiProperty({
     description: 'The id of the company',
     example: 1,
+    required: false,
   })
   @IsNumber()
-  @IsNotEmpty()
-  id: number;
+  @IsOptional()
+  id?: number;
 
   @ApiProperty({
     description: 'The name of the company',
     example: 'Company 1',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  company: string;
+  @IsOptional()
+  company?: string;
 
   @ApiProperty({
-    description: 'The code of the company',
-    example: 'C1',
+    description: 'Ignored. The company code cannot be changed once generated.',
+    example: 'COMPA',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  company_code: string;
+  @IsOptional()
+  company_code?: string;
+
+  @ApiProperty({
+    description: 'The address of the company',
+    example: '123 Main St, Colombo',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  address?: string;
 
   @ApiProperty({
     description: 'The logo of the company',
     example: 'https://example.com/logo.png',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  logo: string;
+  @IsOptional()
+  logo?: string;
 
   @ApiProperty({
     description: 'The suspend on date of the company',
     example: '2021-01-01',
+    required: false,
   })
-  @IsString()
-  @IsNotEmpty()
-  suspend_on: Date;
+  @IsOptional()
+  suspend_on?: Date;
 
   @ApiProperty({
     description: 'The active status of the company',
     example: ActiveStatus.ACTIVE,
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  isActive: ActiveStatus;
+  @IsOptional()
+  isActive?: ActiveStatus;
 
 
   @ApiProperty({

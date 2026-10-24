@@ -91,7 +91,7 @@ export class CompanyController {
     return this.companyService.createCompany(
       {
         company: createCompanyDto.company,
-        company_code: createCompanyDto.company_code,
+        address: createCompanyDto.address,
         suspend_on: createCompanyDto.suspend_on,
         isActive: createCompanyDto.isActive,
         users: users,
@@ -101,25 +101,27 @@ export class CompanyController {
     );
   }
 
-  @AuthorizationPermissions('2')
   @Put(':id')
   @UseInterceptors(FileInterceptor('logo'))
   async updateCompanyWithLogo(
-    @Request() req,
+    @Request() req: any,
     @UploadedFile() file: Express.Multer.File,
     @Body() updateCompanyDto: UpdateCompanyDto,
     @Param('id') id: number,
   ): Promise<Company> {
+    const activeCompanyId = req.activeCompany?.companyId;
+
     return this.companyService.updateCompany(
-      id,
+      Number(id),
       {
         company: updateCompanyDto.company,
-        company_code: updateCompanyDto.company_code,
+        address: updateCompanyDto.address,
         suspend_on: updateCompanyDto.suspend_on,
         isActive: updateCompanyDto.isActive,
       },
       req.user,
       file,
+      activeCompanyId,
     );
   }
 
@@ -130,14 +132,17 @@ export class CompanyController {
     return this.companyService.getAllCompany(activeCompanyId);
   }
 
-  @AuthorizationPermissions('4')
   @Get(':id')
   async getCompanyById(
     @Param('id') id: number,
     @Req() req: any,
   ): Promise<ResponseCompanyDto> {
-    const activeCompanyId = req.activeCompany?.companyId;
-    return this.companyService.getCompanyById(id, activeCompanyId);
+    const activeCompanyId =
+      req.activeCompany?.companyId ??
+      (req.headers?.['x-selected-company']
+        ? parseInt(req.headers['x-selected-company'] as string, 10)
+        : undefined);
+    return this.companyService.getCompanyById(Number(id), activeCompanyId);
   }
 
   @AuthorizationPermissions('3')

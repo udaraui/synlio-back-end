@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { Company } from './company.entity';
-import { EntityManager, In } from 'typeorm';
+import { EntityManager, In, FindOptionsWhere } from 'typeorm';
 import { ResponseCompanyDto } from './dto/company.dto';
 import { ActiveStatus } from '../../common/enum/status.enum';
 import { UserCompanyView } from '../../user-management/user/user-company-view/user-company.entity';
@@ -15,6 +15,7 @@ import { uploadToAzureCompanyLogo } from '../../common/azure/azure-image-upload'
 import { RedisService } from '../../redis/redis.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
 import { MeetingProvider } from '../../meetings-integration/entities/meeting-integration-connection.entity';
+import { generateUniqueCompanyCode } from '../../common/utils/company-code.util';
 
 @Injectable()
 export class CompanyService {
@@ -55,20 +56,21 @@ export class CompanyService {
     id: number,
     activeCompanyId?: number,
   ): Promise<ResponseCompanyDto> {
-    const where: any = { id };
-    if (activeCompanyId && activeCompanyId !== 0) {
-      where.id = activeCompanyId;
+    const targetId =
+      activeCompanyId && activeCompanyId !== 0 ? activeCompanyId : id;
+
+    if (activeCompanyId && activeCompanyId !== 0 && activeCompanyId !== id) {
+      throw new NotFoundException(`Company with id ${id} not found`);
     }
+
+    const where: FindOptionsWhere<Company> = { id: targetId };
 
     const company = await this.entityManager.findOne(Company, {
       where,
       relations: ['divisions'],
     });
     if (!company) {
-      throw new HttpException(
-        `Company with id ${id} not found`,
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new NotFoundException(`Company with id ${id} not found`);
     }
     return company;
   }
@@ -97,7 +99,27 @@ export class CompanyService {
       userIds = userIdsRaw;
     }
 
-    let savedCompany = await this.entityManager.save(Company, newCompanyData);
+    // The company code is always generated server-side (5 letters, unique, based on the name)
+    let savedCompany: Company | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      newCompanyData.company_code = await generateUniqueCompanyCode(
+        this.entityManager,
+        newCompanyData.company as string,
+      );
+      try {
+        savedCompany = await this.entityManager.save(Company, newCompanyData);
+        break;
+      } catch (error: any) {
+        // 23505 = unique_violation (another company took the code concurrently)
+        if (error?.code !== '23505' || attempt === 2) throw error;
+      }
+    }
+    if (!savedCompany) {
+      throw new HttpException(
+        'Unable to generate a unique company code',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
 
     if (file) {
       const imageUrl = await uploadToAzureCompanyLogo(
@@ -160,25 +182,65 @@ export class CompanyService {
     file?: Express.Multer.File,
     activeCompanyId?: number,
   ): Promise<Company> {
-    const where: any = { id };
-    if (activeCompanyId && activeCompanyId !== 0) {
-      where.id = activeCompanyId;
-    }
+    const targetCompanyId =
+      activeCompanyId && activeCompanyId !== 0 ? activeCompanyId : id;
+
+    const where: FindOptionsWhere<Company> = { id: targetCompanyId };
 
     const existing = await this.entityManager.findOne(Company, { where });
     if (!existing) {
       throw new NotFoundException(`Company with id ${id} not found`);
     }
 
-    company.isActive = ActiveStatus.ACTIVE;
-    if (file) {
-      const imageUrl = await uploadToAzureCompanyLogo(file, id);
-      company.logo = imageUrl;
+    // Dynamic privilege check for "Company Edit" (privilege '2')
+    const rawPrivileges: Array<{
+      companyId?: number | null;
+      privilegeIds?: (number | string)[];
+    }> = authUser?.privileges || [];
+
+    const hasCompanyEditPrivilege = rawPrivileges.some((p) => {
+      const isTargetCompany =
+        p.companyId === targetCompanyId || p.companyId === id;
+      const isSystem = p.companyId === 0 || p.companyId === null;
+      if (isTargetCompany || isSystem) {
+        return (p.privilegeIds || []).some((pid) => String(pid) === '2');
+      }
+      return false;
+    });
+
+    const updatePayload: Partial<Company> = {};
+
+    if (hasCompanyEditPrivilege) {
+      if (company.company !== undefined) {
+        updatePayload.company = company.company;
+      }
+      if (company.address !== undefined) {
+        updatePayload.address = company.address;
+      }
+      if (company.suspend_on !== undefined) {
+        updatePayload.suspend_on = company.suspend_on;
+      }
+      if (company.isActive !== undefined) {
+        updatePayload.isActive = company.isActive;
+      }
+
+      if (file) {
+        const imageUrl = await uploadToAzureCompanyLogo(file, id);
+        updatePayload.logo = imageUrl;
+      }
+    } else {
+      // Non-privileged users: strictly allow updates only to the address column
+      if (company.address !== undefined) {
+        updatePayload.address = company.address;
+      }
     }
-    company.updatedBy = authUser.email;
-    await this.entityManager.update(Company, where, company);
+
+    updatePayload.updatedBy = authUser?.email;
+    updatePayload.company_code = undefined; // Company code is immutable
+
+    await this.entityManager.update(Company, where, updatePayload);
     const updated = await this.entityManager.findOne(Company, {
-      where: { id },
+      where: { id: targetCompanyId },
     });
     return updated!;
   }
