@@ -42,10 +42,10 @@ export class TicketSpaceService implements OnModuleInit {
   // ── Startup seeding ───────────────────────────────────────────────────
 
   async onModuleInit() {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('SKIPPING - Redis cache seeding for ticket spaces in development environment.');
-      return;
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('SKIPPING - Redis cache seeding for ticket spaces in development environment.');
+    //   return;
+    // }
 
     try {
       const spaces = await this.entityManager.find(TicketSpace, {

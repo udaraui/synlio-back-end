@@ -263,18 +263,8 @@ export class TmTaskService {
       }
 
       // ── Build the member ID set for root top-level tasks ──────────────────────
-      const isRootTopLevel =
-        !data.parentTaskId &&
-        (data.hierarchyLevelSequence === 0 ||
-          (data.hierarchyLevelConfigId && task.hierarchyLevelSequence === 0));
-
       let memberIds: number[] = [];
       const memberIdSet = new Set<number>();
-      
-      if (isRootTopLevel) {
-        if (data.assigneeId) memberIdSet.add(data.assigneeId);
-        data.coAssigneeIds?.forEach((id) => memberIdSet.add(id));
-      }
       
       data.memberIds?.forEach((id) => memberIdSet.add(id));
 
@@ -1203,12 +1193,6 @@ export class TmTaskService {
 
     const now = new Date();
 
-    // Auto-sync members: only add new assignee, do not remove old assignees
-    const memberIdSet = new Set((task.members ?? []).map((m) => m.id));
-    if (assigneeId !== null) {
-      memberIdSet.add(assigneeId);
-    }
-
     // Update task scalar columns
     await this.entityManager.update(Task, where, {
       assigneeId: assigneeId as any,
@@ -1221,32 +1205,6 @@ export class TmTaskService {
       updatedBy: authUser?.email as string,
       updatedAt: now,
     });
-
-    // Sync members via raw SQL to avoid TypeORM duplicate-key issues
-    await this.entityManager.query(
-      `DELETE FROM tm_task_members WHERE "taskId" = $1`,
-      [id],
-    );
-    const memberArr = [...memberIdSet];
-    if (memberArr.length > 0) {
-      const placeholders = memberArr
-        .map((_, i) => `($1, $${i + 2})`)
-        .join(', ');
-      await this.entityManager.query(
-        `INSERT INTO tm_task_members ("taskId", "resourceId") VALUES ${placeholders} ON CONFLICT DO NOTHING`,
-        [id, ...memberArr],
-      );
-    }
-
-    task.members = memberArr.length
-      ? await this.entityManager.find(Resource, {
-        where: { id: In(memberArr as number[]) },
-      })
-      : [];
-
-
-    void this.redisService.deleteByPattern(`guest_accessible_tasks:*:space:${task.taskSpaceId}`);
-    void this.invalidateTaskMembers(id, memberArr as number[]);
 
     // Fire-and-forget alert (oldAssigneeId supplied by caller — no extra DB read)
     void this.taskAlertService.dispatchTaskAssigned(
@@ -1262,7 +1220,7 @@ export class TmTaskService {
         ? { ...resolvedAssignee, assigneeSkill: assigneeSkill ?? null }
         : null,
       assigneeSkill: resolvedAssignee ? assigneeSkill ?? null : null,
-      members: task.members,
+      members: task.members ?? [],
       updatedAt: now,
       updatedBy: authUser?.email as string,
     };
@@ -1303,12 +1261,6 @@ export class TmTaskService {
       })
       : [];
 
-    // Auto-sync members: only add new co-assignees, do not remove removed ones
-    const memberIdSet = new Set((task.members ?? []).map((m) => m.id));
-    for (const newId of newCoAssigneeIdSet) {
-      memberIdSet.add(newId);
-    }
-
     const now = new Date();
 
     // Update co-assignees via raw SQL to avoid TypeORM duplicate-key issues
@@ -1326,36 +1278,10 @@ export class TmTaskService {
       );
     }
 
-    // Sync members via raw SQL
-    await this.entityManager.query(
-      `DELETE FROM tm_task_members WHERE "taskId" = $1`,
-      [id],
-    );
-    const memberArr = [...memberIdSet];
-    if (memberArr.length > 0) {
-      const memPlaceholders = memberArr
-        .map((_, i) => `($1, $${i + 2})`)
-        .join(', ');
-      await this.entityManager.query(
-        `INSERT INTO tm_task_members ("taskId", "resourceId") VALUES ${memPlaceholders} ON CONFLICT DO NOTHING`,
-        [id, ...memberArr],
-      );
-    }
-
     await this.entityManager.update(Task, where, {
       updatedBy: authUser?.email as string,
       updatedAt: now,
     });
-
-    const resolvedMembers = memberArr.length
-      ? await this.entityManager.find(Resource, {
-        where: { id: In(memberArr as number[]) },
-      })
-      : [];
-
-
-    void this.redisService.deleteByPattern(`guest_accessible_tasks:*:space:${task.taskSpaceId}`);
-    void this.invalidateTaskMembers(id, memberArr as number[]);
 
     // Fire-and-forget alert
     void this.taskAlertService.dispatchTaskUpdated(id, {}, {}, authUser);
@@ -1363,7 +1289,7 @@ export class TmTaskService {
     return {
       id,
       coAssignees: resolvedCoAssignees,
-      members: resolvedMembers,
+      members: task.members ?? [],
       updatedAt: now,
       updatedBy: authUser?.email as string,
     };
@@ -2059,46 +1985,6 @@ export class TmTaskService {
       [id],
     );
     const oldMemberIds = oldMembersQuery.map((row: any) => row.resourceId);
-
-    // --- Guest Member Removal Validation for Root Tasks ---
-    if (!exists.parentTaskId) {
-      const removedMemberIds = oldMemberIds.filter((oldId: number) => !dedupedIds.includes(oldId));
-
-      if (removedMemberIds.length > 0) {
-        const descendants = await this.entityManager.query(
-          `WITH RECURSIVE task_hierarchy AS (
-             SELECT id FROM tm_task WHERE id = $1
-             UNION
-             SELECT t.id FROM tm_task t
-             INNER JOIN task_hierarchy th ON t."parentTaskId" = th.id
-           )
-           SELECT id FROM task_hierarchy`,
-          [id]
-        );
-        const descendantIds = descendants.map((row: any) => row.id);
-
-        if (descendantIds.length > 0) {
-          for (const removedId of removedMemberIds) {
-            const [{ assignCount }] = await this.entityManager.query(
-              `SELECT COUNT(*) as "assignCount" FROM tm_task WHERE id = ANY($1) AND "assigneeId" = $2`,
-              [descendantIds, removedId]
-            );
-            const [{ coAssignCount }] = await this.entityManager.query(
-              `SELECT COUNT(*) as "coAssignCount" FROM tm_task_co_assignees WHERE "taskId" = ANY($1) AND "resourceId" = $2`,
-              [descendantIds, removedId]
-            );
-
-            if (parseInt(assignCount, 10) > 0 || parseInt(coAssignCount, 10) > 0) {
-              const resource = await this.entityManager.findOne(Resource, { where: { id: removedId } });
-              throw new BadRequestException(
-                `Cannot remove ${resource?.first_name || 'member'} because they are assigned to this root task or one of its child tasks.`
-              );
-            }
-          }
-        }
-      }
-    }
-    // ------------------------------------------------------
 
     // Use raw SQL for the junction table to avoid TypeORM duplicate-key errors.
     // This is safe because we own both sides of the delete+insert in one request.
@@ -2911,7 +2797,6 @@ export class TmTaskService {
 
     return this.entityManager.save(TaskAttachment, attachment);
   }
-
 
   private async invalidateTaskMembers(taskId: number, additionalMemberIds: number[] = []) {
     try {

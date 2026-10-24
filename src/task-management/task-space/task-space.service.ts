@@ -38,10 +38,10 @@ export class TaskSpaceService implements OnModuleInit {
   // ── Startup seeding ───────────────────────────────────────────────────
 
   async onModuleInit() {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('SKIPPING - Redis cache seeding for task spaces in development environment.');
-      return;
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('SKIPPING - Redis cache seeding for task spaces in development environment.');
+    //   return;
+    // }
 
     try {
       const spaces = await this.entityManager.find(TaskSpace, {
