@@ -38,6 +38,7 @@ export class TaskSpaceVisibilityGuard implements CanActivate {
 
     // Store the accessible IDs in the request object for endpoints that want to filter lists (like GET /task-space)
     request.accessibleSpaceIds = spaceIds;
+    request.visibilityDict = visibilityDict;
 
     // 3A. If it's a specific item endpoint (/:id), validate the ID against the accessible list
     if (spaceIdParam && !isNaN(Number(spaceIdParam))) {

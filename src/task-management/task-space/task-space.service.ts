@@ -1428,6 +1428,7 @@ export class TaskSpaceService implements OnModuleInit {
   async getTaskStatusCounts(
     taskSpaceId: number,
     activeCompanyId?: number,
+    visibilityDict?: Record<number, number[]>,
   ): Promise<{
     hierarchyLevelName: string | null;
     counts: { statusId: number; name: string; color: string; count: number }[];
@@ -1435,6 +1436,7 @@ export class TaskSpaceService implements OnModuleInit {
     const bulk = await this.getBulkTaskStatusCounts(
       [taskSpaceId],
       activeCompanyId,
+      visibilityDict,
     );
     return bulk[taskSpaceId] ?? { hierarchyLevelName: null, counts: [] };
   }
@@ -1443,6 +1445,7 @@ export class TaskSpaceService implements OnModuleInit {
   async getBulkTaskStatusCounts(
     taskSpaceIds: number[],
     activeCompanyId?: number,
+    visibilityDict?: Record<number, number[]>,
   ): Promise<
     Record<
       number,
@@ -1496,17 +1499,65 @@ export class TaskSpaceService implements OnModuleInit {
       count: string;
     }
 
-    const rows = await this.entityManager
-      .createQueryBuilder(Task, 'task')
-      .select('task.taskSpaceId', 'taskSpaceId')
-      .addSelect('task.statusId', 'statusId')
-      .addSelect('COUNT(task.id)', 'count')
-      .where('task.taskSpaceId IN (:...taskSpaceIds)', { taskSpaceIds })
-      .andWhere('task.statusId IS NOT NULL')
-      .andWhere('task.parentTaskId IS NULL')
-      .groupBy('task.taskSpaceId')
-      .addGroupBy('task.statusId')
-      .getRawMany<BulkStatusCountRow>();
+    // Determine authorization per space
+    const fullAccessSpaceIds: number[] = [];
+    const guestConditions: { spaceId: number; taskIds: number[] }[] = [];
+
+    if (visibilityDict) {
+      for (const spaceId of taskSpaceIds) {
+        const numSpaceId = Number(spaceId);
+        if (numSpaceId in visibilityDict) {
+          const allowedTaskIds = visibilityDict[numSpaceId];
+          if (!allowedTaskIds || allowedTaskIds.length === 0) {
+            fullAccessSpaceIds.push(numSpaceId);
+          } else {
+            guestConditions.push({
+              spaceId: numSpaceId,
+              taskIds: allowedTaskIds,
+            });
+          }
+        }
+      }
+    } else {
+      fullAccessSpaceIds.push(...taskSpaceIds.map(Number));
+    }
+
+    let rows: BulkStatusCountRow[] = [];
+
+    if (fullAccessSpaceIds.length > 0 || guestConditions.length > 0) {
+      const qb = this.entityManager
+        .createQueryBuilder(Task, 'task')
+        .select('task.taskSpaceId', 'taskSpaceId')
+        .addSelect('task.statusId', 'statusId')
+        .addSelect('COUNT(task.id)', 'count')
+        .where('task.statusId IS NOT NULL')
+        .andWhere('task.parentTaskId IS NULL');
+
+      const orClauses: string[] = [];
+      const queryParams: Record<string, any> = {};
+
+      if (fullAccessSpaceIds.length > 0) {
+        orClauses.push('task.taskSpaceId IN (:...fullAccessSpaceIds)');
+        queryParams.fullAccessSpaceIds = fullAccessSpaceIds;
+      }
+
+      guestConditions.forEach((gc, idx) => {
+        const spaceParam = `guestSpaceId_${idx}`;
+        const taskIdsParam = `guestTaskIds_${idx}`;
+        orClauses.push(
+          `(task.taskSpaceId = :${spaceParam} AND task.id IN (:...${taskIdsParam}))`,
+        );
+        queryParams[spaceParam] = gc.spaceId;
+        queryParams[taskIdsParam] = gc.taskIds;
+      });
+
+      qb.andWhere(`(${orClauses.join(' OR ')})`, queryParams);
+
+      rows = await qb
+        .groupBy('task.taskSpaceId')
+        .addGroupBy('task.statusId')
+        .getRawMany<BulkStatusCountRow>();
+    }
 
     const statusIds = [...new Set(rows.map((r) => r.statusId))];
     const statuses = statusIds.length

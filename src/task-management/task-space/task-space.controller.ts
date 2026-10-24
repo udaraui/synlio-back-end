@@ -135,7 +135,11 @@ export class TaskSpaceController {
   @Get(':id/task-status-counts')
   getTaskStatusCounts(@Param('id') id: number, @Request() req: any) {
     const activeCompanyId = req.activeCompany?.companyId;
-    return this.taskSpaceService.getTaskStatusCounts(id, activeCompanyId);
+    return this.taskSpaceService.getTaskStatusCounts(
+      id,
+      activeCompanyId,
+      req.visibilityDict,
+    );
   }
 
   @AuthorizationPermissions('44')
@@ -148,6 +152,7 @@ export class TaskSpaceController {
     return this.taskSpaceService.getBulkTaskStatusCounts(
       spaceIds,
       activeCompanyId,
+      req.visibilityDict,
     );
   }
 
