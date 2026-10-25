@@ -39,7 +39,7 @@ export function buildMasterEmailLayout(options: MasterEmailLayoutOptions): strin
     <tr>
       <td align="center" valign="top" style="padding:0;">
         <!-- Card Container (max-width 600px) -->
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#ffffff" class="wrapper email-card" style="max-width:600px;width:100%;margin:0 auto;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px -2px rgba(15,23,42,0.06);border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#ffffff" class="wrapper email-card" style="max-width:600px;width:100%;margin:0 auto;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px -2px rgba(15,23,42,0.06);border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <!-- Header -->
           <tr>
             <td bgcolor="#0b1329" class="header" style="background-color:#0b1329;background-image:linear-gradient(#0b1329,#0b1329);padding:18px 28px;border-bottom:1px solid #0b1329;">

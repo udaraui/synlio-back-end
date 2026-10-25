@@ -85,17 +85,17 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
     const rowsHtml = metaRows.map((row, i) => {
       const isLast = i === metaRows.length - 1;
       const cls = isLast ? 'meta-row-last' : 'meta-row';
-      const borderStyle = isLast ? 'border-bottom:none !important;' : 'border-bottom:1px solid #f1f5f9;';
+      const borderStyle = isLast ? 'border-bottom:none !important;' : '';
       return `<tr class="${cls}"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;${borderStyle}">${row.label}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;${borderStyle}">${row.valueHtml}</td></tr>`;
     }).join('');
 
-    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;border-collapse:collapse;width:100%;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
+    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-collapse:collapse;width:100%;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
   }
 
   let ctaHtml = '';
   if (ctaUrl) {
     ctaHtml = `
-      <div class="cta" style="background-color:#ffffff;border-top:1px solid #f1f5f9;padding:24px 28px 28px;text-align:center;">
+      <div class="cta" style="background-color:#ffffff;padding:24px 28px 28px;text-align:center;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
             <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;border:none;">
@@ -168,7 +168,7 @@ export function buildVerificationEmailHtml(options: VerificationEmailOptions): s
       <!-- OTP Digits Card -->
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto 0;text-align:center;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
         <tr>
-          <td class="code-box" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px 36px;text-align:center;">
+          <td class="code-box" style="background-color:#f8fafc;border-radius:8px;padding:16px 36px;text-align:center;">
             <span class="code-text" style="font-family:'DM Mono',SFMono-Regular,Consolas,monospace;font-size:34px;font-weight:700;letter-spacing:10px;color:#0f172a;display:inline-block;">${verificationCode}</span>
           </td>
         </tr>
@@ -225,7 +225,7 @@ export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions):
       </table>
 
       <!-- Fallback URL Card -->
-      <div class="fallback-box" style="border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-top:24px;text-align:left;background-color:transparent;">
+      <div class="fallback-box" style="border-radius:8px;padding:14px 16px;margin-top:24px;text-align:left;background-color:transparent;">
         <span style="display:block;font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:6px;" class="fallback-label">
           If the button doesn't work, click the link below:
         </span>

@@ -23,7 +23,7 @@ export function buildMasterEmailStyles(): string {
       margin: 0;
       transition: background-color 0.2s ease, color 0.2s ease;
     }
-    .wrapper {
+    .wrapper, .email-card {
       max-width: 600px;
       margin: 0 auto;
       background: ${light.cardBg};
@@ -498,21 +498,19 @@ export function buildMasterEmailStyles(): string {
     /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
     [data-ogsb] body, body[data-ogsb],
     [data-ogsc] body, body[data-ogsc],
-    [data-ogsb] .outer-table, .outer-table[data-ogsb], .x_outer-table[data-ogsb],
-    [data-ogsc] .outer-table, .outer-table[data-ogsc], .x_outer-table[data-ogsc],
-    [data-ogsb] [class*="outer-table"], [data-ogsc] [class*="outer-table"],
-    [data-ogsb="#f1f5f9"] {
+    [data-ogsb] .outer-table, [data-ogsc] .outer-table,
+    .outer-table[data-ogsb], .outer-table[data-ogsc],
+    [data-ogsb] [class*="outer-table"], [data-ogsc] [class*="outer-table"] {
       background-color: transparent !important;
       background: transparent !important;
       background-image: none !important;
     }
 
     /* Force pure black card background & subtle dark border in Outlook Dark Mode */
-    [data-ogsb="#ffffff"],
-    .wrapper[data-ogsb], .x_wrapper[data-ogsb], [data-ogsb] .wrapper, [data-ogsb] .x_wrapper,
-    .wrapper[data-ogsc], .x_wrapper[data-ogsc], [data-ogsc] .wrapper, [data-ogsc] .x_wrapper,
-    .email-card[data-ogsb], .x_email-card[data-ogsb], [data-ogsb] .email-card, [data-ogsb] .x_email-card,
-    .email-card[data-ogsc], .x_email-card[data-ogsc], [data-ogsc] .email-card, [data-ogsc] .x_email-card,
+    [data-ogsb] .wrapper, [data-ogsc] .wrapper,
+    [data-ogsb] .email-card, [data-ogsc] .email-card,
+    .wrapper[data-ogsb], .wrapper[data-ogsc],
+    .email-card[data-ogsb], .email-card[data-ogsc],
     [data-ogsb] [class*="wrapper"], [data-ogsc] [class*="wrapper"],
     [data-ogsb] [class*="email-card"], [data-ogsc] [class*="email-card"] {
       background-color: ${dark.cardBg} !important;
@@ -524,8 +522,8 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* Hero in Outlook Dark Mode */
-    .hero[data-ogsb], .x_hero[data-ogsb], [data-ogsb] .hero, [data-ogsb] .x_hero,
-    .hero[data-ogsc], .x_hero[data-ogsc], [data-ogsc] .hero, [data-ogsc] .x_hero,
+    [data-ogsb] .hero, [data-ogsc] .hero,
+    .hero[data-ogsb], .hero[data-ogsc],
     [data-ogsb] [class*="hero"], [data-ogsc] [class*="hero"] {
       background-color: ${dark.cardBg} !important;
       background: ${dark.cardBg} !important;
@@ -533,9 +531,8 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* Header in Outlook Dark Mode */
-    [data-ogsb="#0b1329"],
-    .header[data-ogsb], .x_header[data-ogsb], [data-ogsb] .header, [data-ogsb] .x_header,
-    .header[data-ogsc], .x_header[data-ogsc], [data-ogsc] .header, [data-ogsc] .x_header,
+    [data-ogsb] .header, [data-ogsc] .header,
+    .header[data-ogsb], .header[data-ogsc],
     [data-ogsb] [class*="header"], [data-ogsc] [class*="header"] {
       background-color: ${dark.headerBg} !important;
       background: ${dark.headerBg} !important;
@@ -545,8 +542,8 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* Meta & CTA dividers in Outlook Dark Mode */
-    .meta[data-ogsb], .x_meta[data-ogsb], [data-ogsb] .meta, [data-ogsb] .x_meta,
-    .meta[data-ogsc], .x_meta[data-ogsc], [data-ogsc] .meta, [data-ogsc] .x_meta,
+    [data-ogsb] .meta, [data-ogsc] .meta,
+    .meta[data-ogsb], .meta[data-ogsc],
     [data-ogsb] [class*="meta"], [data-ogsc] [class*="meta"] {
       background-color: ${dark.cardBg} !important;
       background: ${dark.cardBg} !important;
@@ -554,8 +551,8 @@ export function buildMasterEmailStyles(): string {
       border-top: 1px solid ${dark.borderDivider} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
-    .cta[data-ogsb], .x_cta[data-ogsb], [data-ogsb] .cta, [data-ogsb] .x_cta,
-    .cta[data-ogsc], .x_cta[data-ogsc], [data-ogsc] .cta, [data-ogsc] .x_cta,
+    [data-ogsb] .cta, [data-ogsc] .cta,
+    .cta[data-ogsb], .cta[data-ogsc],
     [data-ogsb] [class*="cta"], [data-ogsc] [class*="cta"] {
       background-color: ${dark.cardBg} !important;
       background: ${dark.cardBg} !important;
@@ -563,11 +560,11 @@ export function buildMasterEmailStyles(): string {
       border-top: 1px solid ${dark.borderDivider} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
-    .meta-label[data-ogsb], .x_meta-label[data-ogsb], [data-ogsb] .meta-label, [data-ogsb] .x_meta-label,
-    .meta-label[data-ogsc], .x_meta-label[data-ogsc], [data-ogsc] .meta-label, [data-ogsc] .x_meta-label,
+    [data-ogsb] .meta-label, [data-ogsc] .meta-label,
+    .meta-label[data-ogsb], .meta-label[data-ogsc],
     [data-ogsb] [class*="meta-label"], [data-ogsc] [class*="meta-label"],
-    .meta-value[data-ogsb], .x_meta-value[data-ogsb], [data-ogsb] .meta-value, [data-ogsb] .x_meta-value,
-    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value,
+    [data-ogsb] .meta-value, [data-ogsc] .meta-value,
+    .meta-value[data-ogsb], .meta-value[data-ogsc],
     [data-ogsb] [class*="meta-value"], [data-ogsc] [class*="meta-value"] {
       border-bottom: 1px solid ${dark.borderDivider} !important;
       border-bottom-color: ${dark.borderDivider} !important;
@@ -744,8 +741,10 @@ export function buildMasterEmailStyles(): string {
       background: #030712 !important;
       background-color: #030712 !important;
     }
-    body.dark .wrapper, [data-theme="dark"] .wrapper, html.dark .wrapper {
+    body.dark .wrapper, [data-theme="dark"] .wrapper, html.dark .wrapper,
+    body.dark .email-card, [data-theme="dark"] .email-card, html.dark .email-card {
       background: ${dark.cardBg} !important;
+      border: 1px solid ${dark.cardBorder} !important;
       border-color: ${dark.cardBorder} !important;
       box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
     }
@@ -758,11 +757,13 @@ export function buildMasterEmailStyles(): string {
     }
     body.dark .meta, [data-theme="dark"] .meta, html.dark .meta {
       background: ${dark.cardBg} !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
     body.dark .meta-label, [data-theme="dark"] .meta-label, html.dark .meta-label,
     body.dark .meta-value, [data-theme="dark"] .meta-value, html.dark .meta-value {
       border-bottom: 1px solid ${dark.borderDivider} !important;
+      border-bottom-color: ${dark.borderDivider} !important;
     }
     body.dark .meta tr:last-child > td, [data-theme="dark"] .meta tr:last-child > td, html.dark .meta tr:last-child > td,
     body.dark .meta-row-last > td, [data-theme="dark"] .meta-row-last > td, html.dark .meta-row-last > td {
@@ -801,6 +802,7 @@ export function buildMasterEmailStyles(): string {
     }
     body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
       background: ${dark.cardBg} !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
     body.dark .cta-btn-cell, [data-theme="dark"] .cta-btn-cell, html.dark .cta-btn-cell {
