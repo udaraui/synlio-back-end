@@ -82,20 +82,21 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
 
   let metaHtml = '';
   if (metaRows && metaRows.length > 0) {
-    const rowsHtml = metaRows.map((row, i) => {
-      const isLast = i === metaRows.length - 1;
-      const cls = isLast ? 'meta-row-last' : 'meta-row';
-      const borderStyle = isLast ? 'border-bottom:none !important;' : '';
-      return `<tr class="${cls}"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;${borderStyle}">${row.label}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;${borderStyle}">${row.valueHtml}</td></tr>`;
+    const rowsHtml = metaRows.map((row) => {
+      return `<tr class="meta-row"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;border-bottom:1px solid #e2e8f0;">${row.label}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;border-bottom:1px solid #e2e8f0;">${row.valueHtml}</td></tr>`;
     }).join('');
 
-    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-collapse:collapse;width:100%;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
+    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-collapse:collapse;width:100%;border-top:1px solid #e2e8f0;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
   }
+
+  const hasMeta = Boolean(metaRows && metaRows.length > 0);
+  const ctaClass = hasMeta ? 'cta' : 'cta cta-standalone';
+  const ctaInlineBorder = hasMeta ? 'border-top:none;' : 'border-top:1px solid #e2e8f0;';
 
   let ctaHtml = '';
   if (ctaUrl) {
     ctaHtml = `
-      <div class="cta" style="background-color:#ffffff;padding:24px 28px 28px;text-align:center;">
+      <div class="${ctaClass}" style="background-color:#ffffff;padding:24px 28px 28px;text-align:center;${ctaInlineBorder}">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
           <tr>
             <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;border:none;">

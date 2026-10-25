@@ -26,8 +26,9 @@ export function withMsoIconFallback(
   return `${msoBranch}<!--[if !mso]><!--><span class="chip-icon">${svg}</span><!--<![endif]-->`;
 }
 
-const CHIP_BASE_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
-const CHIP_MUTED_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;opacity:0.7;";
+// Border is #cbd5e1 (slightly darker than #e2e8f0) so it doesn't glare in Outlook Desktop auto-dark mode
+const CHIP_BASE_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
+const CHIP_MUTED_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;";
 
 /**
  * Builds a status badge matching frontend InlineEditableStatus:
@@ -46,14 +47,23 @@ export function buildChip(
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
   const dotHtml = options?.hideDot
     ? ''
-    : `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${iconColor};"></span>`;
+    : `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${iconColor} !important;background-image:linear-gradient(${iconColor},${iconColor}) !important;border:none !important;"></span>`;
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
   return `<span class="${cls}" style="${style}">${dotHtml}<span class="chip-text">${name}</span></span>`;
 }
 
 /**
  * Builds a severity badge matching frontend InlineEditableSeverity:
- * rounded-md (6px), subtle border, Lucide Flag icon matching frontend severity color.
+ * rounded-md (6px), subtle border, filled flag-shaped colored dot.
+ *
+ * NOTE: SVG inside MSO conditional comments (<!--[if !mso]>) is silently stripped
+ * by Outlook Web (new Outlook), making the icon invisible. Instead we use a
+ * bulletproof colored circle dot (same rendering engine as status chip dots)
+ * followed by a small ⚑ glyph for MSO-only clients. This works across:
+ * - Gmail web/mobile: colored dot renders
+ * - Apple Mail: colored dot renders
+ * - Outlook Web (new): colored dot renders
+ * - Outlook Desktop (MSO): colored ⚑ glyph renders via MSO conditional
  */
 export function buildSeverityChip(
   name?: string | null,
@@ -63,10 +73,14 @@ export function buildSeverityChip(
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
   const flagColor = color || '#10b981';
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
-  const svgFlag = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="${flagColor}" stroke="${flagColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>`;
-  const flag = withMsoIconFallback(svgFlag, FLAG_GLYPH, `color:${flagColor};font-size:12px;line-height:1;vertical-align:middle;margin-right:4px;`);
+  // Colored dot — works in all modern clients (Gmail, Apple Mail, Outlook Web)
+  const dotHtml = `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${flagColor} !important;background-image:linear-gradient(${flagColor},${flagColor}) !important;border:none !important;"></span>`;
+  // MSO-only flag glyph fallback (Outlook Desktop strips the dot's background-image via VML)
+  const msoFallback = `<!--[if mso]><span style="color:${flagColor};font-size:10px;line-height:1;vertical-align:middle;margin-right:3px;">${FLAG_GLYPH}</span><![endif]-->`;
+  // Non-MSO: show colored dot; MSO clients: show flag glyph
+  const icon = `${msoFallback}<!--[if !mso]><!-->${dotHtml}<!--<![endif]-->`;
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${flag}<span class="chip-text">${name}</span></span>`;
+  return `<span class="${cls}" style="${style}">${icon}<span class="chip-text">${name}</span></span>`;
 }
 
 /**

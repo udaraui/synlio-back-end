@@ -18,7 +18,7 @@ export const EmailTokens = {
     textPrimary: '#0f172a',
     textSecondary: '#334155',
     textMuted: '#64748b',
-    borderDivider: '#f1f5f9',
+    borderDivider: '#e2e8f0',
     btnBg: '#0ea5e9',
     btnText: '#ffffff',
     chipBg: '#ffffff',

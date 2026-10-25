@@ -7,6 +7,11 @@ import { EmailTokens } from './email-tokens';
  * - Microsoft Outlook Desktop via .ExternalClass and MsoHyperlink resets
  * - Gmail Web and Mobile Apps via background gradients and table layout resets
  * - Floating preview toolbar classes (.dark, .light, .mobile-view)
+ *
+ * BORDER STRATEGY (critical for cross-client correctness):
+ *  - All border-width + border-style are set via INLINE HTML styles (always rendered)
+ *  - Dark mode CSS only changes border-COLOR using border-xxx-color sub-properties with !important
+ *  - This prevents !important in <style> from stripping inline borders (an email-client quirk)
  */
 export function buildMasterEmailStyles(): string {
   const { light, dark, fontFamily, monoFontFamily } = EmailTokens;
@@ -39,7 +44,7 @@ export function buildMasterEmailStyles(): string {
       background: ${light.headerBg};
       background-color: ${light.headerBg};
       background-image: linear-gradient(${light.headerBg}, ${light.headerBg});
-      border-bottom: 1px solid ${light.headerBorder};
+      /* No border-bottom — header flows into content seamlessly */
     }
     .brand-icon {
       width: 28px;
@@ -117,19 +122,13 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* ── Meta Table Rows ── */
+    /* NOTE: borders on .meta, .meta-label, .meta-value are set via INLINE STYLES.
+       CSS only provides layout/color, NOT border-width/style (to avoid !important conflicts). */
     .meta {
       background: ${light.cardBg};
-      border-top: 1px solid ${light.borderDivider};
+      background-color: ${light.cardBg};
       border-collapse: collapse;
       width: 100%;
-    }
-    .meta-label,
-    .meta-value {
-      border-bottom: 1px solid ${light.borderDivider};
-    }
-    .meta tr:last-child > td,
-    .meta-row-last > td {
-      border-bottom: none !important;
     }
     .meta table,
     .meta table tr,
@@ -170,14 +169,14 @@ export function buildMasterEmailStyles(): string {
       line-height: 18px;
       background: ${light.chipBg};
       color: ${light.chipText};
-      border: 1px solid ${light.chipBorder};
+      border: 1px solid #cbd5e1;
       box-shadow: 0 1px 2px rgba(0,0,0,0.03);
       font-family: ${fontFamily};
       vertical-align: middle;
     }
     .chip-muted {
-      opacity: 0.6;
       background: #f1f5f9;
+      background-color: #f1f5f9;
       color: ${light.textMuted};
     }
     .chip-dot {
@@ -187,6 +186,7 @@ export function buildMasterEmailStyles(): string {
       height: 7px;
       border-radius: 50%;
       margin-right: 6px;
+      border: none !important;
     }
     .chip-icon {
       display: inline-block;
@@ -216,9 +216,11 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* ── Action / CTA Section ── */
+    /* NOTE: border-top is set via INLINE STYLES on the <div class="cta">.
+       CSS only provides background color. This prevents !important from stripping inline borders. */
     .cta {
       background: ${light.cardBg};
-      border-top: 1px solid ${light.borderDivider};
+      background-color: ${light.cardBg};
       padding: 24px 32px 28px;
       text-align: center;
     }
@@ -259,7 +261,7 @@ export function buildMasterEmailStyles(): string {
     }
     a.fallback-link, a.fallback-link:visited {
       color: #0284c7 !important;
-      text-decoration: none !important;
+      text-decoration: underline !important;
     }
     .cta-sub {
       margin-top: 12px;
@@ -268,28 +270,41 @@ export function buildMasterEmailStyles(): string {
       font-family: ${fontFamily};
     }
 
-    /* ── Auth Template Elements ── */
+    /* ── OTP / Verification Code Box ── */
     .code-box {
       background: #f8fafc;
-      border: 1px solid ${light.cardBorder};
+      background-color: #f8fafc;
       border-radius: 8px;
       padding: 16px 36px;
       text-align: center;
-      display: inline-block;
     }
     .code-text {
       font-family: ${monoFontFamily};
-      font-size: 34px;
+      font-size: 32px;
       font-weight: 700;
-      letter-spacing: 10px;
+      letter-spacing: 8px;
       color: ${light.textPrimary};
+      background: transparent;
     }
+
+    /* ── Fallback URL Box ── */
     .fallback-box {
-      border: 1px solid ${light.cardBorder};
       border-radius: 8px;
       padding: 14px 16px;
       margin-top: 24px;
       text-align: left;
+      background: transparent;
+    }
+    .fallback-label {
+      font-size: 12px;
+      color: ${light.textMuted};
+      font-family: ${fontFamily};
+    }
+    .fallback-url, .fallback-link {
+      font-size: 12px;
+      color: #0284c7;
+      word-break: break-all;
+      font-family: ${monoFontFamily};
     }
 
     /* ── Footer ── */
@@ -353,7 +368,14 @@ export function buildMasterEmailStyles(): string {
     .mobile-view .code-box { padding: 12px 20px !important; }
     .mobile-view .code-text { font-size: 26px !important; letter-spacing: 6px !important; }
 
-    /* ── Dark Mode Overrides (Standard OS prefers-color-scheme) ─────── */
+    /* ════════════════════════════════════════════════════════════════════
+       DARK MODE OVERRIDES
+       Key Rule: Only override background-color and text/border COLORS.
+       Never touch border-width or border-style (that breaks inline borders).
+       Use border-xxx-color sub-properties to change only the color.
+    ════════════════════════════════════════════════════════════════════ */
+
+    /* ── 1. Apple Mail / WebKit: @media (prefers-color-scheme: dark) ── */
     @media (prefers-color-scheme: dark) {
       body {
         background: #030712 !important;
@@ -374,60 +396,32 @@ export function buildMasterEmailStyles(): string {
         background: ${dark.headerBg} !important;
         background-color: ${dark.headerBg} !important;
         background-image: linear-gradient(${dark.headerBg}, ${dark.headerBg}) !important;
-        border-bottom: 1px solid ${dark.headerBorder} !important;
+        /* No border-bottom on header in any mode */
       }
       .hero {
         background: ${dark.cardBg} !important;
         background-color: ${dark.cardBg} !important;
       }
+      /* Meta: change only background + border COLOR (not width/style) */
       .meta {
         background: ${dark.cardBg} !important;
         background-color: ${dark.cardBg} !important;
         border-top-color: ${dark.borderDivider} !important;
       }
-      .meta-label, .meta-value {
+      .meta-label, .meta-value, tr.meta-row > td {
         border-bottom-color: ${dark.borderDivider} !important;
-      }
-      .meta tr:last-child > td, .meta-row-last > td {
-        border-bottom: none !important;
       }
       .meta table, .meta table tr, .meta table td {
         border: none !important;
         border-bottom: none !important;
       }
-      .meta-label {
-        color: ${dark.textMuted} !important;
-      }
-      .meta-value {
-        color: #f8fafc !important;
-      }
-      .ticket-title {
-        color: ${dark.textPrimary} !important;
-      }
-      .ticket-desc {
-        color: ${dark.textSecondary} !important;
-      }
-      .breadcrumb {
-        color: ${dark.textMuted} !important;
-      }
-      .breadcrumb-item {
-        color: #38bdf8 !important;
-      }
-      .actor-text {
-        color: ${dark.textMuted} !important;
-      }
-      .actor-text strong {
-        color: ${dark.textPrimary} !important;
-      }
-      /* Dark mode: button text and arrow must be black */
+      .meta-label { color: ${dark.textMuted} !important; }
+      .meta-value { color: #f8fafc !important; }
+      /* CTA: change only background + border COLOR */
       .cta {
         background: ${dark.cardBg} !important;
         background-color: ${dark.cardBg} !important;
         border-top-color: ${dark.borderDivider} !important;
-      }
-      .cta-btn-cell {
-        background-color: ${dark.btnBg} !important;
-        background-image: linear-gradient(${dark.btnBg}, ${dark.btnBg}) !important;
       }
       .cta-btn, a.cta-btn, a.cta-btn:visited, a.cta-btn:hover, a.cta-btn:active,
       .x_cta-btn, .x_cta-btn:visited, a.x_cta-btn, a.x_cta-btn:visited {
@@ -446,293 +440,169 @@ export function buildMasterEmailStyles(): string {
         text-decoration: none !important;
         border: none !important;
       }
-      .avatar, .user-avatar-initials {
-        color: ${dark.btnText} !important;
+      .cta-btn-cell {
+        background-color: ${dark.btnBg} !important;
+        background-image: linear-gradient(${dark.btnBg}, ${dark.btnBg}) !important;
       }
-      .user-name {
-        color: #f8fafc !important;
-      }
+      /* Typography */
+      .ticket-title { color: ${dark.textPrimary} !important; }
+      .ticket-desc { color: ${dark.textSecondary} !important; }
+      .breadcrumb { color: ${dark.textMuted} !important; }
+      .breadcrumb-item { color: #38bdf8 !important; }
+      .actor-text { color: ${dark.textMuted} !important; }
+      .actor-text strong, .actor-name { color: ${dark.textPrimary} !important; }
+      /* Avatars */
+      .avatar, .user-avatar-initials { color: ${dark.btnText} !important; }
+      .user-name { color: #f8fafc !important; }
+      /* Chips */
       .chip {
         background: ${dark.chipBg} !important;
         background-color: ${dark.chipBg} !important;
+        background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
         color: ${dark.chipText} !important;
         border-color: ${dark.chipBorder} !important;
         box-shadow: none !important;
       }
       .chip-muted {
-        opacity: 0.6 !important;
         background: ${dark.chipBg} !important;
         background-color: ${dark.chipBg} !important;
+        background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
         color: ${dark.textMuted} !important;
       }
+      .chip-dot { border: none !important; }
       .chip-date-alert {
         border-color: #ef4444 !important;
         color: #f8fafc !important;
         background: transparent !important;
         background-color: transparent !important;
       }
+      /* Code box */
       .code-box {
         background: #070e1c !important;
         background-color: #070e1c !important;
         border-color: ${dark.cardBorder} !important;
       }
-      .code-text {
-        color: #38bdf8 !important;
-      }
-      .fallback-box {
-        background: #070e1c !important;
-        background-color: #070e1c !important;
-        border-color: ${dark.cardBorder} !important;
-      }
-      .fallback-label {
-        color: ${dark.textMuted} !important;
-      }
+      .code-text { color: #38bdf8 !important; }
+      /* Fallback */
+      .fallback-box { border-color: ${dark.cardBorder} !important; }
+      .fallback-label { color: ${dark.textMuted} !important; }
       .fallback-url, .fallback-link, a.fallback-link, a.fallback-link:visited {
         color: #38bdf8 !important;
       }
-      .footer p {
-        color: ${dark.textMuted} !important;
-      }
+      .footer p { color: ${dark.textMuted} !important; }
     }
 
-    /* ── Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ─── */
-    [data-ogsb] body, body[data-ogsb],
-    [data-ogsc] body, body[data-ogsc],
-    [data-ogsb] .outer-table, [data-ogsc] .outer-table,
-    .outer-table[data-ogsb], .outer-table[data-ogsc],
-    [data-ogsb] [class*="outer-table"], [data-ogsc] [class*="outer-table"] {
-      background-color: transparent !important;
-      background: transparent !important;
-      background-image: none !important;
-    }
+    /* ── 2. Microsoft Outlook Web Dark Mode ([data-ogsc] / [data-ogsb]) ── */
+    /* Outlook's parser silently drops comma-grouped selectors — each rule must be flat. */
+    [data-ogsb] body { background-color: transparent !important; background: transparent !important; }
+    [data-ogsc] body { background-color: transparent !important; background: transparent !important; }
+    [data-ogsb] .outer-table { background-color: transparent !important; background: transparent !important; background-image: none !important; }
+    [data-ogsc] .outer-table { background-color: transparent !important; background: transparent !important; background-image: none !important; }
 
-    /* Force pure black card background & subtle dark border in Outlook Dark Mode */
-    [data-ogsb] .wrapper, [data-ogsc] .wrapper,
-    [data-ogsb] .email-card, [data-ogsc] .email-card,
-    .wrapper[data-ogsb], .wrapper[data-ogsc],
-    .email-card[data-ogsb], .email-card[data-ogsc],
-    [data-ogsb] [class*="wrapper"], [data-ogsc] [class*="wrapper"],
-    [data-ogsb] [class*="email-card"], [data-ogsc] [class*="email-card"] {
-      background-color: ${dark.cardBg} !important;
-      background: ${dark.cardBg} !important;
-      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
-      border: 1px solid ${dark.cardBorder} !important;
-      border-color: ${dark.cardBorder} !important;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
-    }
+    /* Card */
+    [data-ogsb] .wrapper { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .wrapper { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-color: ${dark.cardBorder} !important; }
+    [data-ogsb] .email-card { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .email-card { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-color: ${dark.cardBorder} !important; }
 
-    /* Hero in Outlook Dark Mode */
-    [data-ogsb] .hero, [data-ogsc] .hero,
-    .hero[data-ogsb], .hero[data-ogsc],
-    [data-ogsb] [class*="hero"], [data-ogsc] [class*="hero"] {
-      background-color: ${dark.cardBg} !important;
-      background: ${dark.cardBg} !important;
-      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
-    }
+    /* Hero */
+    [data-ogsb] .hero { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; }
+    [data-ogsc] .hero { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; }
 
-    /* Header in Outlook Dark Mode */
-    [data-ogsb] .header, [data-ogsc] .header,
-    .header[data-ogsb], .header[data-ogsc],
-    [data-ogsb] [class*="header"], [data-ogsc] [class*="header"] {
-      background-color: ${dark.headerBg} !important;
-      background: ${dark.headerBg} !important;
-      background-image: linear-gradient(${dark.headerBg}, ${dark.headerBg}) !important;
-      border-bottom: 1px solid ${dark.headerBorder} !important;
-      border-bottom-color: ${dark.headerBorder} !important;
-    }
+    /* Header */
+    [data-ogsb] .header { background-color: ${dark.headerBg} !important; background: ${dark.headerBg} !important; background-image: linear-gradient(${dark.headerBg},${dark.headerBg}) !important; }
+    [data-ogsc] .header { background-color: ${dark.headerBg} !important; background: ${dark.headerBg} !important; background-image: linear-gradient(${dark.headerBg},${dark.headerBg}) !important; }
 
-    /* Meta & CTA dividers in Outlook Dark Mode */
-    [data-ogsb] .meta, [data-ogsc] .meta,
-    .meta[data-ogsb], .meta[data-ogsc],
-    [data-ogsb] [class*="meta"], [data-ogsc] [class*="meta"] {
-      background-color: ${dark.cardBg} !important;
-      background: ${dark.cardBg} !important;
-      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
-      border-top: 1px solid ${dark.borderDivider} !important;
-      border-top-color: ${dark.borderDivider} !important;
-    }
-    [data-ogsb] .cta, [data-ogsc] .cta,
-    .cta[data-ogsb], .cta[data-ogsc],
-    [data-ogsb] [class*="cta"], [data-ogsc] [class*="cta"] {
-      background-color: ${dark.cardBg} !important;
-      background: ${dark.cardBg} !important;
-      background-image: linear-gradient(${dark.cardBg}, ${dark.cardBg}) !important;
-      border-top: 1px solid ${dark.borderDivider} !important;
-      border-top-color: ${dark.borderDivider} !important;
-    }
-    [data-ogsb] .meta-label, [data-ogsc] .meta-label,
-    .meta-label[data-ogsb], .meta-label[data-ogsc],
-    [data-ogsb] [class*="meta-label"], [data-ogsc] [class*="meta-label"],
-    [data-ogsb] .meta-value, [data-ogsc] .meta-value,
-    .meta-value[data-ogsb], .meta-value[data-ogsc],
-    [data-ogsb] [class*="meta-value"], [data-ogsc] [class*="meta-value"] {
-      border-bottom: 1px solid ${dark.borderDivider} !important;
-      border-bottom-color: ${dark.borderDivider} !important;
-    }
-    [data-ogsb] .meta tr:last-child > td, [data-ogsc] .meta tr:last-child > td,
-    [data-ogsb] .meta-row-last > td, [data-ogsc] .meta-row-last > td,
-    [data-ogsb] [class*="meta-row-last"] > td, [data-ogsc] [class*="meta-row-last"] > td {
-      border-bottom: none !important;
-    }
-    [data-ogsb] .meta table td, [data-ogsc] .meta table td,
-    [data-ogsb] [class*="meta"] table td, [data-ogsc] [class*="meta"] table td {
-      border: none !important;
-      border-bottom: none !important;
-    }
-    .meta-label[data-ogsc], .x_meta-label[data-ogsc], [data-ogsc] .meta-label, [data-ogsc] .x_meta-label,
-    [data-ogsc] [class*="meta-label"] {
-      color: ${dark.textMuted} !important;
-    }
-    .meta-value[data-ogsc], .x_meta-value[data-ogsc], [data-ogsc] .meta-value, [data-ogsc] .x_meta-value,
-    [data-ogsc] [class*="meta-value"] {
-      color: #f8fafc !important;
-    }
+    /* Meta: background + border COLOR only */
+    [data-ogsb] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsc] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsb] table.meta { border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsc] table.meta { border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsb] .meta-label { border-bottom-color: ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
+    [data-ogsc] .meta-label { border-bottom-color: ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
+    [data-ogsb] .meta-value { border-bottom-color: ${dark.borderDivider} !important; color: #f8fafc !important; }
+    [data-ogsc] .meta-value { border-bottom-color: ${dark.borderDivider} !important; color: #f8fafc !important; }
+    [data-ogsb] tr.meta-row > td { border-bottom-color: ${dark.borderDivider} !important; }
+    [data-ogsc] tr.meta-row > td { border-bottom-color: ${dark.borderDivider} !important; }
+    [data-ogsb] .meta table td { border: none !important; }
+    [data-ogsc] .meta table td { border: none !important; }
 
-    /* Typography in Outlook Dark Mode */
-    .ticket-title[data-ogsc], .x_ticket-title[data-ogsc], [data-ogsc] .ticket-title, [data-ogsc] .x_ticket-title,
-    [data-ogsc] [class*="ticket-title"] {
-      color: ${dark.textPrimary} !important;
-    }
-    .ticket-desc[data-ogsc], .x_ticket-desc[data-ogsc], [data-ogsc] .ticket-desc, [data-ogsc] .x_ticket-desc,
-    [data-ogsc] [class*="ticket-desc"] {
-      color: ${dark.textSecondary} !important;
-    }
-    .breadcrumb[data-ogsc], .x_breadcrumb[data-ogsc], [data-ogsc] .breadcrumb, [data-ogsc] .x_breadcrumb,
-    [data-ogsc] [class*="breadcrumb"] {
-      color: ${dark.textMuted} !important;
-    }
-    .breadcrumb-item[data-ogsc], .x_breadcrumb-item[data-ogsc], [data-ogsc] .breadcrumb-item, [data-ogsc] .x_breadcrumb-item,
-    [data-ogsc] [class*="breadcrumb-item"] {
-      color: #38bdf8 !important;
-    }
-    .actor-text[data-ogsc], .x_actor-text[data-ogsc], [data-ogsc] .actor-text, [data-ogsc] .x_actor-text,
-    [data-ogsc] [class*="actor-text"] {
-      color: ${dark.textMuted} !important;
-    }
-    [data-ogsc] .actor-text strong, [data-ogsc] .x_actor-text strong,
-    [data-ogsb] .actor-text strong, [data-ogsb] .x_actor-text strong,
-    [data-ogsc] .actor-name, [data-ogsc] .x_actor-name,
-    [data-ogsb] .actor-name, [data-ogsb] .x_actor-name,
-    [data-ogsc] [class*="actor-name"], [data-ogsb] [class*="actor-name"] {
-      color: ${dark.textPrimary} !important;
-    }
+    /* CTA: background + border COLOR only */
+    [data-ogsb] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsc] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsb] div.cta { border-top-color: ${dark.borderDivider} !important; }
+    [data-ogsc] div.cta { border-top-color: ${dark.borderDivider} !important; }
 
-    /* CTA Button in Outlook Dark Mode */
-    .cta-btn-cell[data-ogsb], .x_cta-btn-cell[data-ogsb], [data-ogsb] .cta-btn-cell, [data-ogsb] .x_cta-btn-cell,
-    .cta-btn[data-ogsb], .x_cta-btn[data-ogsb], [data-ogsb] .cta-btn, [data-ogsb] .x_cta-btn,
-    [data-ogsb] [class*="cta-btn"] {
-      background-color: ${dark.btnBg} !important;
-      background-image: linear-gradient(${dark.btnBg}, ${dark.btnBg}) !important;
-    }
-    body [data-ogsc] a.cta-btn, body [data-ogsc] a.x_cta-btn,
-    div [data-ogsc] a.cta-btn, div [data-ogsc] a.x_cta-btn,
-    td [data-ogsc] a.cta-btn, td [data-ogsc] a.x_cta-btn,
-    [data-ogsc] .cta-btn, [data-ogsc] .x_cta-btn,
-    .cta-btn[data-ogsc], .x_cta-btn[data-ogsc],
-    a[data-ogsc].cta-btn, a[data-ogsc].x_cta-btn,
-    [data-ogsc] a.cta-btn, [data-ogsc] a.x_cta-btn,
-    [data-ogsc] a.cta-btn:visited, [data-ogsc] a.x_cta-btn:visited,
-    a.cta-btn[data-ogsc]:visited, a.x_cta-btn[data-ogsc]:visited,
-    [data-ogsc] .cta-btn *, [data-ogsc] .x_cta-btn *,
-    .cta-btn[data-ogsc] *, .x_cta-btn[data-ogsc] *,
-    [data-ogsc] .cta-btn font, [data-ogsc] .x_cta-btn font,
-    [data-ogsc] .cta-btn span, [data-ogsc] .x_cta-btn span,
-    [data-ogsc] .cta-btn-text, [data-ogsc] .x_cta-btn-text,
-    [data-ogsc] .cta-btn-arrow, [data-ogsc] .x_cta-btn-arrow,
-    [data-ogsc] .cta-btn-font, [data-ogsc] .x_cta-btn-font,
-    [data-ogsc] font[color="#ffffff"],
-    [data-ogsc] [class*="cta-btn"] * {
+    /* CTA Button */
+    [data-ogsb] .cta-btn-cell { background-color: ${dark.btnBg} !important; background-image: linear-gradient(${dark.btnBg},${dark.btnBg}) !important; }
+    [data-ogsb] .cta-btn { background-color: ${dark.btnBg} !important; background-image: linear-gradient(${dark.btnBg},${dark.btnBg}) !important; }
+    [data-ogsc] .cta-btn { background-color: ${dark.btnBg} !important; background-image: linear-gradient(${dark.btnBg},${dark.btnBg}) !important; }
+    [data-ogsc] .cta-btn, [data-ogsc] a.cta-btn, [data-ogsc] a.cta-btn:visited,
+    [data-ogsc] .cta-btn *, [data-ogsc] .cta-btn font, [data-ogsc] .cta-btn span,
+    [data-ogsc] .cta-btn-text, [data-ogsc] .cta-btn-arrow, [data-ogsc] .cta-btn-font,
+    [data-ogsc] font[color="#ffffff"] {
       color: ${dark.btnText} !important;
       text-decoration: none !important;
       border: none !important;
-      outline: none !important;
     }
 
+    /* Typography in Outlook Dark Mode */
+    [data-ogsc] .ticket-title { color: ${dark.textPrimary} !important; }
+    [data-ogsc] .ticket-desc { color: ${dark.textSecondary} !important; }
+    [data-ogsc] .breadcrumb { color: ${dark.textMuted} !important; }
+    [data-ogsc] .breadcrumb-item { color: #38bdf8 !important; }
+    [data-ogsc] .actor-text { color: ${dark.textMuted} !important; }
+    [data-ogsc] .actor-text strong, [data-ogsb] .actor-text strong,
+    [data-ogsc] .actor-name, [data-ogsb] .actor-name { color: ${dark.textPrimary} !important; }
+
     /* Avatars & Chips in Outlook Dark Mode */
-    .avatar[data-ogsc], .x_avatar[data-ogsc], [data-ogsc] .avatar, [data-ogsc] .x_avatar,
-    .user-avatar-initials[data-ogsc], .x_user-avatar-initials[data-ogsc], [data-ogsc] .user-avatar-initials, [data-ogsc] .x_user-avatar-initials,
-    [data-ogsc] [class*="user-avatar-initials"] {
-      color: ${dark.btnText} !important;
-    }
-    .user-name[data-ogsc], .x_user-name[data-ogsc], [data-ogsc] .user-name, [data-ogsc] .x_user-name,
-    [data-ogsc] [class*="user-name"] {
-      color: #f8fafc !important;
-    }
-    .chip[data-ogsb], .x_chip[data-ogsb], [data-ogsb] .chip, [data-ogsb] .x_chip,
-    .chip[data-ogsc], .x_chip[data-ogsc], [data-ogsc] .chip, [data-ogsc] .x_chip,
-    [data-ogsb] [class*="chip"], [data-ogsc] [class*="chip"] {
+    [data-ogsc] .avatar, [data-ogsc] .user-avatar-initials { color: ${dark.btnText} !important; }
+    [data-ogsc] .user-name { color: #f8fafc !important; }
+
+    /* Chips — scoped selectors to avoid hitting .chip-dot */
+    [data-ogsb] .chip, [data-ogsc] .chip,
+    [data-ogsb] span.chip, [data-ogsc] span.chip {
       background-color: ${dark.chipBg} !important;
       background: ${dark.chipBg} !important;
-      background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
-      border: 1px solid ${dark.chipBorder} !important;
+      background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
       border-color: ${dark.chipBorder} !important;
       color: ${dark.chipText} !important;
       box-shadow: none !important;
     }
-    .chip-muted[data-ogsb], .x_chip-muted[data-ogsb], [data-ogsb] .chip-muted, [data-ogsb] .x_chip-muted,
-    .chip-muted[data-ogsc], .x_chip-muted[data-ogsc], [data-ogsc] .chip-muted, [data-ogsc] .x_chip-muted,
-    [data-ogsb] [class*="chip-muted"], [data-ogsc] [class*="chip-muted"] {
+    [data-ogsb] .chip-muted, [data-ogsc] .chip-muted,
+    [data-ogsb] span.chip-muted, [data-ogsc] span.chip-muted {
       background-color: ${dark.chipBg} !important;
       background: ${dark.chipBg} !important;
-      background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
-      border: 1px solid ${dark.chipBorder} !important;
+      background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
       border-color: ${dark.chipBorder} !important;
       color: ${dark.textMuted} !important;
-      opacity: 0.7 !important;
     }
-    .chip-date-alert[data-ogsb], .chip-date-alert[data-ogsc],
-    [data-ogsb] [class*="chip-date-alert"], [data-ogsc] [class*="chip-date-alert"] {
-      border: 1px solid #ef4444 !important;
+    [data-ogsb] .chip-dot, [data-ogsc] .chip-dot { border: none !important; }
+    [data-ogsb] .chip-date-alert, [data-ogsc] .chip-date-alert {
       border-color: #ef4444 !important;
       color: #f8fafc !important;
       background: transparent !important;
-      background-image: none !important;
-    }
-    .code-box[data-ogsb], .x_code-box[data-ogsb], [data-ogsb] .code-box, [data-ogsb] .x_code-box,
-    [data-ogsb] [class*="code-box"] {
-      background-color: #070e1c !important;
-      background: #070e1c !important;
-      background-image: linear-gradient(#070e1c, #070e1c) !important;
-      border: 1px solid ${dark.cardBorder} !important;
-      border-color: ${dark.cardBorder} !important;
-    }
-    .code-box[data-ogsc], .x_code-box[data-ogsc], [data-ogsc] .code-box, [data-ogsc] .x_code-box,
-    [data-ogsc] [class*="code-box"] {
-      border: 1px solid ${dark.cardBorder} !important;
-      border-color: ${dark.cardBorder} !important;
-    }
-    .code-text[data-ogsc], .x_code-text[data-ogsc], [data-ogsc] .code-text, [data-ogsc] .x_code-text,
-    [data-ogsc] [class*="code-text"] {
-      color: #38bdf8 !important;
-    }
-    .fallback-box[data-ogsb], .x_fallback-box[data-ogsb], [data-ogsb] .fallback-box, [data-ogsb] .x_fallback-box,
-    [data-ogsb] [class*="fallback-box"] {
-      background-color: #070e1c !important;
-      background: #070e1c !important;
-      background-image: linear-gradient(#070e1c, #070e1c) !important;
-      border: 1px solid ${dark.cardBorder} !important;
-      border-color: ${dark.cardBorder} !important;
-    }
-    .fallback-box[data-ogsc], .x_fallback-box[data-ogsc], [data-ogsc] .fallback-box, [data-ogsc] .x_fallback-box,
-    [data-ogsc] [class*="fallback-box"] {
-      border: 1px solid ${dark.cardBorder} !important;
-      border-color: ${dark.cardBorder} !important;
-    }
-    .fallback-label[data-ogsc], .x_fallback-label[data-ogsc], [data-ogsc] .fallback-label, [data-ogsc] .x_fallback-label,
-    [data-ogsc] [class*="fallback-label"] {
-      color: ${dark.textMuted} !important;
-    }
-    .fallback-url[data-ogsc], .x_fallback-url[data-ogsc], [data-ogsc] .fallback-url, [data-ogsc] .x_fallback-url,
-    .fallback-link[data-ogsc], .x_fallback-link[data-ogsc], [data-ogsc] .fallback-link, [data-ogsc] .x_fallback-link,
-    [data-ogsc] [class*="fallback-link"] {
-      color: #38bdf8 !important;
-    }
-    .footer p[data-ogsc], .x_footer p[data-ogsc], [data-ogsc] .footer p, [data-ogsc] .x_footer p,
-    [data-ogsc] [class*="footer"] p {
-      color: ${dark.textMuted} !important;
     }
 
-    /* ── Explicit .dark Styles (For Preview Toolbar) ─────────────────────── */
+    /* Code Box */
+    [data-ogsb] .code-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .code-box { border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .code-text { color: #38bdf8 !important; }
+
+    /* Fallback Box */
+    [data-ogsb] .fallback-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .fallback-box { border-color: ${dark.cardBorder} !important; }
+    [data-ogsc] .fallback-label { color: ${dark.textMuted} !important; }
+    [data-ogsc] .fallback-url, [data-ogsc] .fallback-link { color: #38bdf8 !important; }
+    [data-ogsc] .footer p { color: ${dark.textMuted} !important; }
+
+    /* ════════════════════════════════════════════════════════════════════
+       3. Preview Toolbar Dark/Light classes
+       These are only used in the frontend web preview — not in real emails.
+       They follow the same "color-only" rule: change border-color, not width/style.
+    ════════════════════════════════════════════════════════════════════ */
+
+    /* ── .dark preview class ── */
     body.dark, [data-theme="dark"] body, html.dark body {
       background: #030712 !important;
       color: ${dark.textPrimary} !important;
@@ -744,33 +614,29 @@ export function buildMasterEmailStyles(): string {
     body.dark .wrapper, [data-theme="dark"] .wrapper, html.dark .wrapper,
     body.dark .email-card, [data-theme="dark"] .email-card, html.dark .email-card {
       background: ${dark.cardBg} !important;
-      border: 1px solid ${dark.cardBorder} !important;
+      background-color: ${dark.cardBg} !important;
       border-color: ${dark.cardBorder} !important;
       box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
     }
     body.dark .header, [data-theme="dark"] .header, html.dark .header {
       background: ${dark.headerBg} !important;
-      border-bottom: 1px solid ${dark.headerBorder} !important;
+      background-color: ${dark.headerBg} !important;
+      background-image: linear-gradient(${dark.headerBg},${dark.headerBg}) !important;
     }
     body.dark .hero, [data-theme="dark"] .hero, html.dark .hero {
       background: ${dark.cardBg} !important;
+      background-color: ${dark.cardBg} !important;
     }
     body.dark .meta, [data-theme="dark"] .meta, html.dark .meta {
       background: ${dark.cardBg} !important;
-      border-top: 1px solid ${dark.borderDivider} !important;
+      background-color: ${dark.cardBg} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
     body.dark .meta-label, [data-theme="dark"] .meta-label, html.dark .meta-label,
-    body.dark .meta-value, [data-theme="dark"] .meta-value, html.dark .meta-value {
-      border-bottom: 1px solid ${dark.borderDivider} !important;
+    body.dark .meta-value, [data-theme="dark"] .meta-value, html.dark .meta-value,
+    body.dark tr.meta-row > td, [data-theme="dark"] tr.meta-row > td, html.dark tr.meta-row > td {
       border-bottom-color: ${dark.borderDivider} !important;
     }
-    body.dark .meta tr:last-child > td, [data-theme="dark"] .meta tr:last-child > td, html.dark .meta tr:last-child > td,
-    body.dark .meta-row-last > td, [data-theme="dark"] .meta-row-last > td, html.dark .meta-row-last > td {
-      border-bottom: none !important;
-    }
-    body.dark .meta table, [data-theme="dark"] .meta table, html.dark .meta table,
-    body.dark .meta table tr, [data-theme="dark"] .meta table tr, html.dark .meta table tr,
     body.dark .meta table td, [data-theme="dark"] .meta table td, html.dark .meta table td {
       border: none !important;
       border-bottom: none !important;
@@ -781,32 +647,14 @@ export function buildMasterEmailStyles(): string {
     body.dark .meta-value, [data-theme="dark"] .meta-value, html.dark .meta-value {
       color: #f8fafc !important;
     }
-    body.dark .ticket-title, [data-theme="dark"] .ticket-title, html.dark .ticket-title {
-      color: ${dark.textPrimary} !important;
-    }
-    body.dark .ticket-desc, [data-theme="dark"] .ticket-desc, html.dark .ticket-desc {
-      color: ${dark.textSecondary} !important;
-    }
-    body.dark .breadcrumb, [data-theme="dark"] .breadcrumb {
-      color: ${dark.textMuted} !important;
-    }
-    body.dark .breadcrumb-item, [data-theme="dark"] .breadcrumb-item {
-      color: #38bdf8 !important;
-    }
-    body.dark .actor-text, [data-theme="dark"] .actor-text, html.dark .actor-text {
-      color: ${dark.textMuted} !important;
-    }
-    body.dark .actor-text strong, [data-theme="dark"] .actor-text strong, html.dark .actor-text strong,
-    body.dark .actor-name, [data-theme="dark"] .actor-name, html.dark .actor-name {
-      color: ${dark.textPrimary} !important;
-    }
     body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
       background: ${dark.cardBg} !important;
-      border-top: 1px solid ${dark.borderDivider} !important;
+      background-color: ${dark.cardBg} !important;
       border-top-color: ${dark.borderDivider} !important;
     }
     body.dark .cta-btn-cell, [data-theme="dark"] .cta-btn-cell, html.dark .cta-btn-cell {
       background-color: ${dark.btnBg} !important;
+      background-image: linear-gradient(${dark.btnBg},${dark.btnBg}) !important;
     }
     body.dark a.cta-btn, [data-theme="dark"] a.cta-btn, html.dark a.cta-btn,
     body.dark .cta-btn, [data-theme="dark"] .cta-btn, html.dark .cta-btn,
@@ -819,24 +667,31 @@ export function buildMasterEmailStyles(): string {
       text-decoration: none !important;
       border: none !important;
     }
+    body.dark .ticket-title, [data-theme="dark"] .ticket-title, html.dark .ticket-title { color: ${dark.textPrimary} !important; }
+    body.dark .ticket-desc, [data-theme="dark"] .ticket-desc, html.dark .ticket-desc { color: ${dark.textSecondary} !important; }
+    body.dark .breadcrumb, [data-theme="dark"] .breadcrumb { color: ${dark.textMuted} !important; }
+    body.dark .breadcrumb-item, [data-theme="dark"] .breadcrumb-item { color: #38bdf8 !important; }
+    body.dark .actor-text, [data-theme="dark"] .actor-text, html.dark .actor-text { color: ${dark.textMuted} !important; }
+    body.dark .actor-text strong, [data-theme="dark"] .actor-text strong, html.dark .actor-text strong,
+    body.dark .actor-name, [data-theme="dark"] .actor-name, html.dark .actor-name { color: ${dark.textPrimary} !important; }
     body.dark .avatar, [data-theme="dark"] .avatar, html.dark .avatar,
-    body.dark .user-avatar-initials, [data-theme="dark"] .user-avatar-initials, html.dark .user-avatar-initials {
-      color: ${dark.btnText} !important;
-    }
-    body.dark .user-name, [data-theme="dark"] .user-name, html.dark .user-name {
-      color: #f8fafc !important;
-    }
+    body.dark .user-avatar-initials, [data-theme="dark"] .user-avatar-initials, html.dark .user-avatar-initials { color: ${dark.btnText} !important; }
+    body.dark .user-name, [data-theme="dark"] .user-name, html.dark .user-name { color: #f8fafc !important; }
     body.dark .chip, [data-theme="dark"] .chip, html.dark .chip {
       background: ${dark.chipBg} !important;
+      background-color: ${dark.chipBg} !important;
+      background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
       color: ${dark.chipText} !important;
       border-color: ${dark.chipBorder} !important;
       box-shadow: none !important;
     }
     body.dark .chip-muted, [data-theme="dark"] .chip-muted, html.dark .chip-muted {
-      opacity: 0.6 !important;
       background: ${dark.chipBg} !important;
+      background-color: ${dark.chipBg} !important;
+      background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
       color: ${dark.textMuted} !important;
     }
+    body.dark .chip-dot, [data-theme="dark"] .chip-dot, html.dark .chip-dot { border: none !important; }
     body.dark .chip-date-alert, [data-theme="dark"] .chip-date-alert, html.dark .chip-date-alert {
       border-color: #ef4444 !important;
       color: #f8fafc !important;
@@ -844,27 +699,21 @@ export function buildMasterEmailStyles(): string {
     }
     body.dark .code-box, [data-theme="dark"] .code-box, html.dark .code-box {
       background: #070e1c !important;
+      background-color: #070e1c !important;
       border-color: ${dark.cardBorder} !important;
     }
-    body.dark .code-text, [data-theme="dark"] .code-text, html.dark .code-text {
-      color: #38bdf8 !important;
-    }
+    body.dark .code-text, [data-theme="dark"] .code-text, html.dark .code-text { color: #38bdf8 !important; }
     body.dark .fallback-box, [data-theme="dark"] .fallback-box, html.dark .fallback-box {
       background: #070e1c !important;
+      background-color: #070e1c !important;
       border-color: ${dark.cardBorder} !important;
     }
-    body.dark .fallback-label, [data-theme="dark"] .fallback-label, html.dark .fallback-label {
-      color: ${dark.textMuted} !important;
-    }
+    body.dark .fallback-label, [data-theme="dark"] .fallback-label, html.dark .fallback-label { color: ${dark.textMuted} !important; }
     body.dark .fallback-url, [data-theme="dark"] .fallback-url, html.dark .fallback-url,
-    body.dark .fallback-link, [data-theme="dark"] .fallback-link, html.dark .fallback-link {
-      color: #38bdf8 !important;
-    }
-    body.dark .footer p, [data-theme="dark"] .footer p, html.dark .footer p {
-      color: ${dark.textMuted} !important;
-    }
+    body.dark .fallback-link, [data-theme="dark"] .fallback-link, html.dark .fallback-link { color: #38bdf8 !important; }
+    body.dark .footer p, [data-theme="dark"] .footer p, html.dark .footer p { color: ${dark.textMuted} !important; }
 
-    /* ── Explicit .light Styles (For Preview Toolbar) ────────────────────── */
+    /* ── .light preview class ── */
     body.light, [data-theme="light"] body, html.light body {
       background: ${light.canvasBg} !important;
       color: ${light.textPrimary} !important;
@@ -873,67 +722,46 @@ export function buildMasterEmailStyles(): string {
       background: ${light.canvasBg} !important;
       background-color: ${light.canvasBg} !important;
     }
-    body.light .wrapper, [data-theme="light"] .wrapper, html.light .wrapper {
+    body.light .wrapper, [data-theme="light"] .wrapper, html.light .wrapper,
+    body.light .email-card, [data-theme="light"] .email-card, html.light .email-card {
       background: ${light.cardBg} !important;
+      background-color: ${light.cardBg} !important;
       border-color: ${light.cardBorder} !important;
       box-shadow: 0 4px 20px -2px rgba(15,23,42,0.06) !important;
     }
     body.light .header, [data-theme="light"] .header, html.light .header {
       background: ${light.headerBg} !important;
-      border-bottom: 1px solid ${light.headerBorder} !important;
+      background-color: ${light.headerBg} !important;
+      background-image: linear-gradient(${light.headerBg},${light.headerBg}) !important;
     }
     body.light .hero, [data-theme="light"] .hero, html.light .hero {
       background: ${light.cardBg} !important;
+      background-color: ${light.cardBg} !important;
     }
     body.light .meta, [data-theme="light"] .meta, html.light .meta {
       background: ${light.cardBg} !important;
+      background-color: ${light.cardBg} !important;
       border-top-color: ${light.borderDivider} !important;
     }
     body.light .meta-label, [data-theme="light"] .meta-label, html.light .meta-label,
-    body.light .meta-value, [data-theme="light"] .meta-value, html.light .meta-value {
-      border-bottom: 1px solid ${light.borderDivider} !important;
+    body.light .meta-value, [data-theme="light"] .meta-value, html.light .meta-value,
+    body.light tr.meta-row > td, [data-theme="light"] tr.meta-row > td, html.light tr.meta-row > td {
+      border-bottom-color: ${light.borderDivider} !important;
     }
-    body.light .meta tr:last-child > td, [data-theme="light"] .meta tr:last-child > td, html.light .meta tr:last-child > td,
-    body.light .meta-row-last > td, [data-theme="light"] .meta-row-last > td, html.light .meta-row-last > td {
-      border-bottom: none !important;
-    }
-    body.light .meta table, [data-theme="light"] .meta table, html.light .meta table,
-    body.light .meta table tr, [data-theme="light"] .meta table tr, html.light .meta table tr,
     body.light .meta table td, [data-theme="light"] .meta table td, html.light .meta table td {
       border: none !important;
       border-bottom: none !important;
     }
-    body.light .meta-label, [data-theme="light"] .meta-label, html.light .meta-label {
-      color: ${light.textMuted} !important;
-    }
-    body.light .meta-value, [data-theme="light"] .meta-value, html.light .meta-value {
-      color: ${light.textPrimary} !important;
-    }
-    body.light .ticket-title, [data-theme="light"] .ticket-title, html.light .ticket-title {
-      color: ${light.textPrimary} !important;
-    }
-    body.light .ticket-desc, [data-theme="light"] .ticket-desc, html.light .ticket-desc {
-      color: ${light.textSecondary} !important;
-    }
-    body.light .breadcrumb, [data-theme="light"] .breadcrumb {
-      color: ${light.textMuted} !important;
-    }
-    body.light .breadcrumb-item, [data-theme="light"] .breadcrumb-item {
-      color: #0284c7 !important;
-    }
-    body.light .actor-text, [data-theme="light"] .actor-text, html.light .actor-text {
-      color: ${light.textMuted} !important;
-    }
-    body.light .actor-text strong, [data-theme="light"] .actor-text strong, html.light .actor-text strong,
-    body.light .actor-name, [data-theme="light"] .actor-name, html.light .actor-name {
-      color: ${light.textPrimary} !important;
-    }
+    body.light .meta-label, [data-theme="light"] .meta-label, html.light .meta-label { color: ${light.textMuted} !important; }
+    body.light .meta-value, [data-theme="light"] .meta-value, html.light .meta-value { color: ${light.textPrimary} !important; }
     body.light .cta, [data-theme="light"] .cta, html.light .cta {
       background: ${light.cardBg} !important;
+      background-color: ${light.cardBg} !important;
       border-top-color: ${light.borderDivider} !important;
     }
     body.light .cta-btn-cell, [data-theme="light"] .cta-btn-cell, html.light .cta-btn-cell {
       background-color: ${light.btnBg} !important;
+      background-image: linear-gradient(${light.btnBg},${light.btnBg}) !important;
     }
     body.light a.cta-btn, [data-theme="light"] a.cta-btn, html.light a.cta-btn,
     body.light .cta-btn, [data-theme="light"] .cta-btn, html.light .cta-btn,
@@ -943,52 +771,49 @@ export function buildMasterEmailStyles(): string {
     body.light .cta-btn-arrow, [data-theme="light"] .cta-btn-arrow, html.light .cta-btn-arrow,
     body.light .cta-btn-font, [data-theme="light"] .cta-btn-font, html.light .cta-btn-font {
       color: ${light.btnText} !important;
-      stroke: ${light.btnText} !important;
       text-decoration: none !important;
       border: none !important;
     }
+    body.light .ticket-title, [data-theme="light"] .ticket-title, html.light .ticket-title { color: ${light.textPrimary} !important; }
+    body.light .ticket-desc, [data-theme="light"] .ticket-desc, html.light .ticket-desc { color: ${light.textSecondary} !important; }
+    body.light .breadcrumb, [data-theme="light"] .breadcrumb { color: ${light.textMuted} !important; }
+    body.light .breadcrumb-item, [data-theme="light"] .breadcrumb-item { color: #0284c7 !important; }
+    body.light .actor-text, [data-theme="light"] .actor-text, html.light .actor-text { color: ${light.textMuted} !important; }
+    body.light .actor-text strong, [data-theme="light"] .actor-text strong, html.light .actor-text strong,
+    body.light .actor-name, [data-theme="light"] .actor-name, html.light .actor-name { color: ${light.textPrimary} !important; }
     body.light .avatar, [data-theme="light"] .avatar, html.light .avatar,
-    body.light .user-avatar-initials, [data-theme="light"] .user-avatar-initials, html.light .user-avatar-initials {
-      color: ${light.btnText} !important;
-    }
-    body.light .user-name, [data-theme="light"] .user-name, html.light .user-name {
-      color: ${light.textPrimary} !important;
-    }
+    body.light .user-avatar-initials, [data-theme="light"] .user-avatar-initials, html.light .user-avatar-initials { color: ${light.btnText} !important; }
+    body.light .user-name, [data-theme="light"] .user-name, html.light .user-name { color: ${light.textPrimary} !important; }
     body.light .chip, [data-theme="light"] .chip, html.light .chip {
       background: ${light.chipBg} !important;
+      background-color: ${light.chipBg} !important;
       color: ${light.chipText} !important;
-      border-color: ${light.chipBorder} !important;
+      border-color: #cbd5e1 !important;
     }
     body.light .chip-muted, [data-theme="light"] .chip-muted, html.light .chip-muted {
-      opacity: 0.6 !important;
       background: #f1f5f9 !important;
+      background-color: #f1f5f9 !important;
+      color: ${light.textMuted} !important;
     }
+    body.light .chip-dot, [data-theme="light"] .chip-dot, html.light .chip-dot { border: none !important; }
     body.light .chip-date-alert, [data-theme="light"] .chip-date-alert, html.light .chip-date-alert {
-      border: 1px solid #ef4444 !important;
+      border-color: #ef4444 !important;
       color: ${light.textPrimary} !important;
       background: transparent !important;
     }
     body.light .code-box, [data-theme="light"] .code-box, html.light .code-box {
       background: #f8fafc !important;
+      background-color: #f8fafc !important;
       border-color: ${light.cardBorder} !important;
     }
-    body.light .code-text, [data-theme="light"] .code-text, html.light .code-text {
-      color: ${light.textPrimary} !important;
-    }
+    body.light .code-text, [data-theme="light"] .code-text, html.light .code-text { color: ${light.textPrimary} !important; }
     body.light .fallback-box, [data-theme="light"] .fallback-box, html.light .fallback-box {
       background: transparent !important;
       border-color: ${light.cardBorder} !important;
     }
-    body.light .fallback-label, [data-theme="light"] .fallback-label, html.light .fallback-label {
-      color: ${light.textMuted} !important;
-    }
+    body.light .fallback-label, [data-theme="light"] .fallback-label, html.light .fallback-label { color: ${light.textMuted} !important; }
     body.light .fallback-url, [data-theme="light"] .fallback-url, html.light .fallback-url,
-    body.light .fallback-link, [data-theme="light"] .fallback-link, html.light .fallback-link,
-    body.light a.fallback-link, body.light a.fallback-link:visited {
-      color: #0284c7 !important;
-    }
-    body.light .footer p, [data-theme="light"] .footer p, html.light .footer p {
-      color: #94a3b8 !important;
-    }
+    body.light .fallback-link, [data-theme="light"] .fallback-link, html.light .fallback-link { color: #0284c7 !important; }
+    body.light .footer p, [data-theme="light"] .footer p, html.light .footer p { color: #94a3b8 !important; }
   `;
 }
