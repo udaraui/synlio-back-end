@@ -290,6 +290,7 @@ export function buildMasterEmailStyles(): string {
     .code-box {
       background: #f8fafc;
       background-color: #f8fafc;
+      border: 1px solid rgba(0,0,0,0.08);
       border-radius: 8px;
       padding: 16px 36px;
       text-align: center;
@@ -305,11 +306,13 @@ export function buildMasterEmailStyles(): string {
 
     /* ── Fallback URL Box ── */
     .fallback-box {
+      border: 1px solid rgba(0,0,0,0.08);
       border-radius: 8px;
       padding: 14px 16px;
       margin-top: 24px;
       text-align: left;
-      background: transparent;
+      background: #f8fafc;
+      background-color: #f8fafc;
     }
     .fallback-label {
       font-size: 12px;
@@ -321,6 +324,24 @@ export function buildMasterEmailStyles(): string {
       color: #0284c7;
       word-break: break-all;
       font-family: ${monoFontFamily};
+    }
+    .disclaimer-text {
+      font-size: 13px;
+      color: ${light.textMuted};
+      font-style: italic;
+      line-height: 1.6;
+      font-family: ${fontFamily};
+    }
+    .callout-box {
+      padding: 16px;
+      background-color: #f8fafc;
+      border-left: 4px solid #0ea5e9;
+      border-radius: 0 8px 8px 0;
+      color: ${light.textSecondary};
+      font-size: 14px;
+      line-height: 1.6;
+      font-style: italic;
+      margin-top: 14px;
     }
 
     /* ── Footer ── */
@@ -499,14 +520,25 @@ export function buildMasterEmailStyles(): string {
       .code-box {
         background: #070e1c !important;
         background-color: #070e1c !important;
-        border-color: ${dark.cardBorder} !important;
+        border: 1px solid ${dark.borderDivider} !important;
       }
       .code-text { color: #38bdf8 !important; }
       /* Fallback */
-      .fallback-box { border-color: ${dark.cardBorder} !important; }
+      .fallback-box {
+        background: #070e1c !important;
+        background-color: #070e1c !important;
+        border: 1px solid ${dark.borderDivider} !important;
+      }
       .fallback-label { color: ${dark.textMuted} !important; }
       .fallback-url, .fallback-link, a.fallback-link, a.fallback-link:visited {
         color: #38bdf8 !important;
+      }
+      .disclaimer-text { color: ${dark.textMuted} !important; }
+      .callout-box {
+        background-color: #070e1c !important;
+        background: #070e1c !important;
+        border-left: 4px solid #38bdf8 !important;
+        color: ${dark.textSecondary} !important;
       }
       .footer p { color: ${dark.textMuted} !important; }
     }
@@ -608,15 +640,18 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* Code Box */
-    [data-ogsb] .code-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border-color: ${dark.cardBorder} !important; }
-    [data-ogsc] .code-box { border-color: ${dark.cardBorder} !important; }
+    [data-ogsb] .code-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] .code-box { border: 1px solid ${dark.borderDivider} !important; }
     [data-ogsc] .code-text { color: #38bdf8 !important; }
 
     /* Fallback Box */
-    [data-ogsb] .fallback-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border-color: ${dark.cardBorder} !important; }
-    [data-ogsc] .fallback-box { border-color: ${dark.cardBorder} !important; }
+    [data-ogsb] .fallback-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] .fallback-box { border: 1px solid ${dark.borderDivider} !important; }
     [data-ogsc] .fallback-label { color: ${dark.textMuted} !important; }
     [data-ogsc] .fallback-url, [data-ogsc] .fallback-link { color: #38bdf8 !important; }
+    [data-ogsc] .disclaimer-text { color: ${dark.textMuted} !important; }
+    [data-ogsb] .callout-box { background-color: #070e1c !important; background: #070e1c !important; background-image: linear-gradient(#070e1c,#070e1c) !important; border-left: 4px solid #38bdf8 !important; }
+    [data-ogsc] .callout-box { color: ${dark.textSecondary} !important; border-left-color: #38bdf8 !important; }
     [data-ogsc] .footer p { color: ${dark.textMuted} !important; }
 
     /* ════════════════════════════════════════════════════════════════════
@@ -729,17 +764,24 @@ export function buildMasterEmailStyles(): string {
     body.dark .code-box, [data-theme="dark"] .code-box, html.dark .code-box {
       background: #070e1c !important;
       background-color: #070e1c !important;
-      border-color: ${dark.cardBorder} !important;
+      border: 1px solid ${dark.borderDivider} !important;
     }
     body.dark .code-text, [data-theme="dark"] .code-text, html.dark .code-text { color: #38bdf8 !important; }
     body.dark .fallback-box, [data-theme="dark"] .fallback-box, html.dark .fallback-box {
       background: #070e1c !important;
       background-color: #070e1c !important;
-      border-color: ${dark.cardBorder} !important;
+      border: 1px solid ${dark.borderDivider} !important;
     }
     body.dark .fallback-label, [data-theme="dark"] .fallback-label, html.dark .fallback-label { color: ${dark.textMuted} !important; }
     body.dark .fallback-url, [data-theme="dark"] .fallback-url, html.dark .fallback-url,
     body.dark .fallback-link, [data-theme="dark"] .fallback-link, html.dark .fallback-link { color: #38bdf8 !important; }
+    body.dark .disclaimer-text, [data-theme="dark"] .disclaimer-text, html.dark .disclaimer-text { color: ${dark.textMuted} !important; }
+    body.dark .callout-box, [data-theme="dark"] .callout-box, html.dark .callout-box {
+      background-color: #070e1c !important;
+      background: #070e1c !important;
+      border-left: 4px solid #38bdf8 !important;
+      color: ${dark.textSecondary} !important;
+    }
     body.dark .footer p, [data-theme="dark"] .footer p, html.dark .footer p { color: ${dark.textMuted} !important; }
 
     /* ── .light preview class ── */
@@ -839,16 +881,23 @@ export function buildMasterEmailStyles(): string {
     body.light .code-box, [data-theme="light"] .code-box, html.light .code-box {
       background: #f8fafc !important;
       background-color: #f8fafc !important;
-      border-color: ${light.cardBorder} !important;
+      border: 1px solid rgba(0,0,0,0.08) !important;
     }
     body.light .code-text, [data-theme="light"] .code-text, html.light .code-text { color: ${light.textPrimary} !important; }
     body.light .fallback-box, [data-theme="light"] .fallback-box, html.light .fallback-box {
-      background: transparent !important;
-      border-color: ${light.cardBorder} !important;
+      background: #f8fafc !important;
+      background-color: #f8fafc !important;
+      border: 1px solid rgba(0,0,0,0.08) !important;
     }
     body.light .fallback-label, [data-theme="light"] .fallback-label, html.light .fallback-label { color: ${light.textMuted} !important; }
     body.light .fallback-url, [data-theme="light"] .fallback-url, html.light .fallback-url,
     body.light .fallback-link, [data-theme="light"] .fallback-link, html.light .fallback-link { color: #0284c7 !important; }
+    body.light .disclaimer-text, [data-theme="light"] .disclaimer-text, html.light .disclaimer-text { color: ${light.textMuted} !important; }
+    body.light .callout-box, [data-theme="light"] .callout-box, html.light .callout-box {
+      background-color: #f8fafc !important;
+      border-left: 4px solid #0ea5e9 !important;
+      color: ${light.textSecondary} !important;
+    }
     body.light .footer p, [data-theme="light"] .footer p, html.light .footer p { color: #94a3b8 !important; }
   `;
 }

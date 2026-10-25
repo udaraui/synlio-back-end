@@ -1,6 +1,6 @@
 import { buildMasterEmailLayout, MasterEmailLayoutOptions } from './email-layout';
 import { getSynlioLogoUrl, SYNLIO_LOGO_URL, SYNLIO_LOGO_DATA_URI } from './email-tokens';
-import { escapeHtml } from './email-components';
+import { escapeHtml, buildDateChip } from './email-components';
 
 export type { MasterEmailLayoutOptions };
 export { buildMasterEmailLayout, getSynlioLogoUrl, SYNLIO_LOGO_URL, SYNLIO_LOGO_DATA_URI };
@@ -21,10 +21,6 @@ export interface EmailTemplateOptions {
   actorProfilePicUrl?: string | null;
 }
 
-/**
- * Alert email template (used for Ticket, Task, and Project updates).
- * Matches Tab 1 of the frontend Email Preview exactly.
- */
 export function buildEmailHtml(options: EmailTemplateOptions): string {
   const {
     eventBadge,
@@ -142,49 +138,48 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────── //
-//  Standardized Auth Templates: Verification Code & Password Reset
-// ─────────────────────────────────────────────────────────────────────────── //
-
 export interface VerificationEmailOptions {
   verificationCode: string;
   expiryMinutes?: number;
 }
 
-/**
- * Verification Code Email Template.
- * Matches Tab 2 of frontend Email Preview exactly.
- */
 export function buildVerificationEmailHtml(options: VerificationEmailOptions): string {
   const { verificationCode, expiryMinutes = 15 } = options;
 
+  const breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;"><span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">Security / Email Verification</span></div>`;
+
   const bodyHtml = `
-    <div class="hero" style="background-color:#ffffff;padding:28px 32px 36px;">
-      <h1 class="ticket-title" style="margin:0 0 12px 0;font-size:20px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Verify your email address</h1>
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 12px 0;" class="ticket-desc">
+    <div class="hero" style="background-color:#ffffff;padding:24px 28px 20px;">
+      ${breadcrumbHtml}
+      <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Verify your email address</h1>
+      <p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0 0 14px 0;font-family:'Plus Jakarta Sans',sans-serif;">
         Thanks for signing up for Synlio! Enter the verification code below to confirm your account and get started.
       </p>
-      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 16px 0;">
+      <p class="disclaimer-text" style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 14px 0;">
         If you did not request this email, you can safely ignore it.
       </p>
-
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 24px 0;" class="ticket-desc">
-        This code will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text">${expiryMinutes} minutes</strong>
+      <p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0;font-family:'Plus Jakarta Sans',sans-serif;">
+        This code will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text actor-name">${expiryMinutes} minutes</strong>.
       </p>
-
+    </div>
+    <div class="cta" style="background-color:#ffffff;padding:24px 28px 28px;text-align:center;border-top:1px solid rgba(0,0,0,0.08);">
       <!-- OTP Digits Card -->
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto 0;text-align:center;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;text-align:center;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
         <tr>
-          <td class="code-box" style="background-color:#f8fafc;border-radius:8px;padding:16px 36px;text-align:center;">
+          <td class="code-box" style="background-color:#f8fafc;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:16px 36px;text-align:center;">
             <span class="code-text" style="font-family:'DM Mono',SFMono-Regular,Consolas,monospace;font-size:34px;font-weight:700;letter-spacing:10px;color:#0f172a;display:inline-block;">${verificationCode}</span>
           </td>
         </tr>
       </table>
+      <p class="cta-sub" style="margin-top:14px;font-size:12px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;">
+        Enter this code on the verification screen to complete your registration.
+      </p>
     </div>
   `;
 
   return buildMasterEmailLayout({
     title: 'Verify your email address',
+    eventBadge: 'Verification',
     bodyHtml,
   });
 }
@@ -195,29 +190,28 @@ export interface PasswordResetEmailOptions {
   expiryHours?: number;
 }
 
-/**
- * Password Reset Email Template.
- * Matches Tab 3 of frontend Email Preview exactly.
- */
 export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions): string {
   const { resetLink, expiryHours = 1 } = options;
 
+  const breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;"><span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">Security / Password Reset</span></div>`;
+
   const bodyHtml = `
-    <div class="hero" style="background-color:#ffffff;padding:28px 32px 36px;">
-      <h1 class="ticket-title" style="margin:0 0 12px 0;font-size:20px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Reset your password</h1>
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 12px 0;" class="ticket-desc">
+    <div class="hero" style="background-color:#ffffff;padding:24px 28px 20px;">
+      ${breadcrumbHtml}
+      <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">Reset your password</h1>
+      <p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0 0 14px 0;font-family:'Plus Jakarta Sans',sans-serif;">
         We received a request to reset the password for your Synlio account. Click the button below to choose a new password.
       </p>
-      <p style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 16px 0;">
+      <p class="disclaimer-text" style="font-size:13px;color:#64748b;font-style:italic;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 14px 0;">
         If you did not request this email, you can safely ignore it.
       </p>
-
-      <p style="font-size:14px;color:#334155;line-height:1.6;font-family:'Plus Jakarta Sans',sans-serif;margin:0 0 24px 0;" class="ticket-desc">
-        This link will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text">${expiryHours} hour${expiryHours > 1 ? 's' : ''}</strong>
+      <p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0;font-family:'Plus Jakarta Sans',sans-serif;">
+        This link will expire in <strong style="color:#0f172a;font-weight:600;" class="actor-text actor-name">${expiryHours} hour${expiryHours > 1 ? 's' : ''}</strong>.
       </p>
-
+    </div>
+    <div class="cta" style="background-color:#ffffff;padding:24px 28px 28px;text-align:center;border-top:1px solid rgba(0,0,0,0.08);">
       <!-- Bulletproof CTA Button (Table + inline styles for Outlook, Gmail, Apple Mail) -->
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 24px;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">
         <tr>
           <td align="center" bgcolor="#0ea5e9" class="cta-btn-cell" style="background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);border-radius:6px;mso-padding-alt:10px 24px;border:none;">
             <a href="${resetLink}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;border:none !important;outline:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
@@ -232,11 +226,11 @@ export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions):
       </table>
 
       <!-- Fallback URL Card -->
-      <div class="fallback-box" style="border-radius:8px;padding:14px 16px;margin-top:24px;text-align:left;background-color:transparent;">
-        <span style="display:block;font-size:13px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:6px;" class="fallback-label">
-          If the button doesn't work, click the link below:
+      <div class="fallback-box" style="border:1px solid rgba(0,0,0,0.08);background-color:#f8fafc;border-radius:8px;padding:12px 16px;margin-top:20px;text-align:left;">
+        <span class="fallback-label" style="display:block;font-size:12px;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:4px;">
+          If the button doesn't work, copy and paste this link into your browser:
         </span>
-        <span style="display:block;font-size:13px;color:#0284c7;word-break:break-all;font-family:'Plus Jakarta Sans',sans-serif;line-height:1.5;" class="fallback-url">
+        <span class="fallback-url" style="display:block;font-size:12px;color:#0284c7;word-break:break-all;font-family:'DM Mono',SFMono-Regular,Consolas,monospace;line-height:1.5;">
           <a href="${resetLink}" target="_blank" style="color:#0284c7;text-decoration:none;" class="fallback-link">${resetLink}</a>
         </span>
       </div>
@@ -245,6 +239,65 @@ export function buildPasswordResetEmailHtml(options: PasswordResetEmailOptions):
 
   return buildMasterEmailLayout({
     title: 'Reset your password',
+    eventBadge: 'Password Reset',
     bodyHtml,
+  });
+}
+
+export interface PulseVerificationEmailOptions {
+  actorName: string;
+  actorInitials?: string;
+  actorProfilePicUrl?: string | null;
+  message?: string;
+  reviewUrl: string;
+  weekRange?: string;
+  totalLoggedHours?: string | number;
+}
+
+/**
+ * Pulse Verification / Snapshot Review Email Template.
+ * Used when an employee forwards or submits their weekly pulse snapshot for verification/review.
+ */
+export function buildPulseVerificationEmailHtml(options: PulseVerificationEmailOptions): string {
+  const {
+    actorName,
+    actorInitials,
+    actorProfilePicUrl,
+    message = 'Hi, please review and approve this weekly pulse snapshot.',
+    reviewUrl,
+    weekRange,
+    totalLoggedHours,
+  } = options;
+
+  const safeMessage = message
+    ? `<div class="callout-box" style="padding:16px;border-radius:0 8px 8px 0;color:#334155;font-size:14px;line-height:1.6;font-style:italic;margin-top:14px;">${escapeHtml(message)}</div>`
+    : '';
+
+  const metaRows: Array<{ label: string; valueHtml: string }> = [];
+  if (weekRange) {
+    metaRows.push({
+      label: 'Timeline',
+      valueHtml: buildDateChip(weekRange),
+    });
+  }
+  if (totalLoggedHours) {
+    metaRows.push({
+      label: 'Logged Hours',
+      valueHtml: `<span style="font-size:13px;font-weight:600;color:#0f172a;" class="actor-text actor-name">${escapeHtml(String(totalLoggedHours))}</span>`,
+    });
+  }
+
+  return buildEmailHtml({
+    eventBadge: 'Pulse Snapshot',
+    breadcrumb: 'Weekly Pulse',
+    title: 'Pulse Snapshot Forwarded',
+    actorName,
+    actorInitials,
+    actorProfilePicUrl,
+    actionSentence: `<strong>${escapeHtml(actorName)}</strong> requested your review`,
+    customDetailBlockHtml: safeMessage,
+    metaRows: metaRows.length > 0 ? metaRows : undefined,
+    ctaUrl: reviewUrl,
+    ctaLabel: 'Review Snapshot',
   });
 }

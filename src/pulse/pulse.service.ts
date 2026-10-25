@@ -1,4 +1,4 @@
-import { buildEmailHtml } from '../common/email-builder';
+import { buildEmailHtml, buildPulseVerificationEmailHtml } from '../common/email-builder';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -1117,17 +1117,12 @@ export class PulseService {
       const base64Data = Buffer.from(JSON.stringify(payload)).toString('base64');
       const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
       const reviewUrl = `${frontendUrl}/pulse/review?data=${base64Data}`;
-      const emailBody = buildEmailHtml({
-        eventBadge: 'Pulse Snapshot',
-        breadcrumb: 'Weekly Pulse',
-        title: 'Pulse Snapshot Forwarded',
+      const emailBody = buildPulseVerificationEmailHtml({
         actorName: actorFullName,
         actorInitials,
         actorProfilePicUrl,
-        actionSentence: `<strong>${actorFullName}</strong> requested your review`,
-        customDetailBlockHtml: forwardPulseWeekDto.forwardMessage ? `<div style="padding:16px;background-color:#f8fafc;border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;color:#334155;font-size:14px;line-height:1.6;font-style:italic;">${forwardPulseWeekDto.forwardMessage}</div>` : '',
-        ctaUrl: reviewUrl,
-        ctaLabel: 'Review Snapshot',
+        message: forwardPulseWeekDto.forwardMessage,
+        reviewUrl,
       });
 
       await this.emailService.create({

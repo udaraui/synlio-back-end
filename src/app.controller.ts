@@ -19,6 +19,7 @@ export class AppController {
       buildAssigneeChip, buildDateChip, 
       buildParticipantsChip, buildChangeValue,
       buildVerificationEmailHtml, buildPasswordResetEmailHtml,
+      buildPulseVerificationEmailHtml,
     } = require('./common/email-builder');
 
     let html = '';
@@ -33,6 +34,13 @@ export class AppController {
         firstName: 'Alex',
         resetLink: 'https://app.synlio.com/reset-password?token=sample-reset-token-12345',
         expiryHours: 1,
+      });
+    } else if (type === 'pulse' || type === 'pulse-verification') {
+      html = buildPulseVerificationEmailHtml({
+        actorName: 'Kasun Ariyasinghe',
+        actorInitials: 'KA',
+        message: 'Hi, please review and approve this weekly pulse snapshot.',
+        reviewUrl: 'https://app.synlio.com/pulse/review?sample=1',
       });
     } else {
       html = buildEmailHtml({
@@ -112,6 +120,7 @@ export class AppController {
     const isAlert = !currentType || currentType === 'alert';
     const isVerif = currentType === 'verification';
     const isReset = currentType === 'password-reset';
+    const isPulse = currentType === 'pulse' || currentType === 'pulse-verification';
 
     const toolbar = `
       <style>
@@ -145,6 +154,7 @@ export class AppController {
           <a href="/email-preview" style="padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:500;text-decoration:none;transition:all 0.15s;${isAlert ? 'background:#0ea5e9;color:#ffffff;font-weight:600;' : 'color:#94a3b8;'}">Alert Notification</a>
           <a href="/email-preview?type=verification" style="padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:500;text-decoration:none;transition:all 0.15s;${isVerif ? 'background:#0ea5e9;color:#ffffff;font-weight:600;' : 'color:#94a3b8;'}">Verification Code</a>
           <a href="/email-preview?type=password-reset" style="padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:500;text-decoration:none;transition:all 0.15s;${isReset ? 'background:#0ea5e9;color:#ffffff;font-weight:600;' : 'color:#94a3b8;'}">Password Reset</a>
+          <a href="/email-preview?type=pulse" style="padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:500;text-decoration:none;transition:all 0.15s;${isPulse ? 'background:#0ea5e9;color:#ffffff;font-weight:600;' : 'color:#94a3b8;'}">Pulse Verification</a>
         </div>
 
         <span style="height:16px;width:1px;background:rgba(255,255,255,0.15);margin:0 2px;"></span>
