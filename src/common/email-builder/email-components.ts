@@ -23,16 +23,40 @@ export function withMsoIconFallback(
   const msoBranch = msoGlyph
     ? `<!--[if mso]><span style="${glyphStyle}">${msoGlyph}</span><![endif]-->`
     : '';
-  return `${msoBranch}<!--[if !mso]><!--><span class="chip-icon">${svg}</span><!--<![endif]-->`;
+  return `${msoBranch}<!--[if !mso]><!--><span class="chip-icon" style="display:inline-block;vertical-align:middle;margin-right:5px;line-height:0;">${svg}</span><!--<![endif]-->`;
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/**
+ * Escapes user-supplied text to prevent HTML injection.
+ */
+export function escapeHtml(str?: string | null): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Builds a bulletproof flag icon using 100% pure HTML table cells and bgcolor.
+ * Works across every email client, including Word-engine Outlook Desktop and Gmail.
+ */
+export function buildFlagIcon(color?: string | null): string {
+  const c = color && HEX.test(color) ? color : '#10b981';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;vertical-align:middle;margin-right:5px;border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td rowspan="2" width="2" bgcolor="${c}" style="width:2px;background-color:${c};font-size:0;line-height:0;padding:0;">&nbsp;</td><td width="8" height="6" bgcolor="${c}" style="width:8px;height:6px;background-color:${c};font-size:0;line-height:0;padding:0;">&nbsp;</td></tr><tr><td height="6" style="height:6px;font-size:0;line-height:0;padding:0;">&nbsp;</td></tr></table>`;
 }
 
 // Border is #cbd5e1 (slightly darker than #e2e8f0) so it doesn't glare in Outlook Desktop auto-dark mode
-const CHIP_BASE_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
-const CHIP_MUTED_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;";
+const CHIP_BASE_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#ffffff;color:#334155;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',Arial,sans-serif;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,0.03);";
+const CHIP_MUTED_STYLE = "display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;font-family:'Plus Jakarta Sans',Arial,sans-serif;vertical-align:middle;";
 
 /**
  * Builds a status badge matching frontend InlineEditableStatus:
- * rounded-md (6px), subtle border, 8px colored dot.
+ * bulletproof 1-cell table with rounded border and 7px colored dot.
  */
 export function buildChip(
   name?: string | null,
@@ -43,27 +67,20 @@ export function buildChip(
   if (options?.icon === 'flag') {
     return buildSeverityChip(name, color, { muted: options?.muted });
   }
-  const iconColor = color || '#0ea5e9';
+  const safeName = escapeHtml(name);
+  const iconColor = color && HEX.test(color) ? color : (color || '#0ea5e9');
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const dotHtml = options?.hideDot
     ? ''
     : `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${iconColor} !important;background-image:linear-gradient(${iconColor},${iconColor}) !important;border:none !important;"></span>`;
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${dotHtml}<span class="chip-text">${name}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${dotHtml}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
- * Builds a severity badge matching frontend InlineEditableSeverity:
- * rounded-md (6px), subtle border, filled flag-shaped colored dot.
- *
- * NOTE: SVG inside MSO conditional comments (<!--[if !mso]>) is silently stripped
- * by Outlook Web (new Outlook), making the icon invisible. Instead we use a
- * bulletproof colored circle dot (same rendering engine as status chip dots)
- * followed by a small ⚑ glyph for MSO-only clients. This works across:
- * - Gmail web/mobile: colored dot renders
- * - Apple Mail: colored dot renders
- * - Outlook Web (new): colored dot renders
- * - Outlook Desktop (MSO): colored ⚑ glyph renders via MSO conditional
+ * Builds a severity badge matching status badge:
+ * bulletproof 1-cell table with rounded border and 7px colored dot.
  */
 export function buildSeverityChip(
   name?: string | null,
@@ -71,16 +88,13 @@ export function buildSeverityChip(
   options?: { muted?: boolean },
 ): string {
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
-  const flagColor = color || '#10b981';
+  const safeName = escapeHtml(name);
+  const dotColor = color && HEX.test(color) ? color : (color || '#10b981');
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
-  // Colored dot — works in all modern clients (Gmail, Apple Mail, Outlook Web)
-  const dotHtml = `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${flagColor} !important;background-image:linear-gradient(${flagColor},${flagColor}) !important;border:none !important;"></span>`;
-  // MSO-only flag glyph fallback (Outlook Desktop strips the dot's background-image via VML)
-  const msoFallback = `<!--[if mso]><span style="color:${flagColor};font-size:10px;line-height:1;vertical-align:middle;margin-right:3px;">${FLAG_GLYPH}</span><![endif]-->`;
-  // Non-MSO: show colored dot; MSO clients: show flag glyph
-  const icon = `${msoFallback}<!--[if !mso]><!-->${dotHtml}<!--<![endif]-->`;
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
+  const dotHtml = `<span class="chip-dot" style="display:inline-block;vertical-align:middle;width:7px;height:7px;border-radius:50%;margin-right:5px;background-color:${dotColor} !important;background-image:linear-gradient(${dotColor},${dotColor}) !important;border:none !important;"></span>`;
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${icon}<span class="chip-text">${name}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${dotHtml}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
@@ -92,12 +106,14 @@ export function buildTypeChip(
   options?: { muted?: boolean; color?: string },
 ): string {
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
+  const safeName = escapeHtml(name);
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const iconColor = options?.color || 'currentColor';
   const svgTag = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5" fill="currentColor"/></svg>`;
   const icon = withMsoIconFallback(svgTag);
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${icon}<span class="chip-text">${name}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${icon}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
@@ -109,12 +125,14 @@ export function buildQueueChip(
   options?: { muted?: boolean; color?: string },
 ): string {
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
+  const safeName = escapeHtml(name);
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const iconColor = options?.color || 'currentColor';
   const svgFolder = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M2 10h20"/></svg>`;
   const icon = withMsoIconFallback(svgFolder);
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${icon}<span class="chip-text">${name}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${icon}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
@@ -126,12 +144,14 @@ export function buildImpactChip(
   options?: { muted?: boolean; color?: string },
 ): string {
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
+  const safeName = escapeHtml(name);
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const iconColor = options?.color || 'currentColor';
   const svgTarget = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`;
   const icon = withMsoIconFallback(svgTarget);
   const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${style}">${icon}<span class="chip-text">${name}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${icon}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
@@ -146,22 +166,24 @@ export function buildDateChip(
   options?: { muted?: boolean; alert?: boolean; isOverdue?: boolean },
 ): string {
   if (!dateStr || dateStr === '—') return '<span style="color:#94a3b8;">—</span>';
+  const safeDate = escapeHtml(dateStr);
   const isOverdue = options?.alert || options?.isOverdue;
 
   if (isOverdue) {
     const calendarSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
     const cls = options?.muted ? 'chip chip-date-alert chip-muted' : 'chip chip-date-alert';
     const finalSvg = withMsoIconFallback(calendarSvg, CALENDAR_GLYPH, 'color:#ef4444;font-size:12px;margin-right:4px;');
-    const overdueStyle = `display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:transparent;color:#0f172a;border:1px solid #ef4444;font-family:'Plus Jakarta Sans',sans-serif;vertical-align:middle;${options?.muted ? 'opacity:0.7;' : ''}`;
-    return `<span class="${cls}" style="${overdueStyle}">${finalSvg}<span class="chip-text">${dateStr}</span></span>`;
+    const overdueStyle = `display:inline-block;white-space:nowrap !important;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:500;line-height:18px;background-color:transparent;color:#0f172a;border:1px solid #ef4444;font-family:'Plus Jakarta Sans',Arial,sans-serif;vertical-align:middle;${options?.muted ? 'opacity:0.7;' : ''}`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="transparent" style="${overdueStyle}">${finalSvg}<span class="chip-text">${safeDate}</span></td></tr></table>`;
   }
 
   // Standard non-overdue date badge: neutral border and muted icon
   const calendarSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const finalSvg = withMsoIconFallback(calendarSvg, CALENDAR_GLYPH, 'color:#64748b;font-size:12px;margin-right:4px;');
   const normalStyle = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
-  return `<span class="${cls}" style="${normalStyle}">${finalSvg}<span class="chip-text">${dateStr}</span></span>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${normalStyle}">${finalSvg}<span class="chip-text">${safeDate}</span></td></tr></table>`;
 }
 
 /**
@@ -212,12 +234,15 @@ export function buildIconChip(
   options?: { muted?: boolean; iconColor?: string },
 ): string {
   if (!name || name === '—') return '<span style="color:#94a3b8;">—</span>';
+  const safeName = escapeHtml(name);
   const cls = options?.muted ? 'chip chip-muted' : 'chip';
+  const bg = options?.muted ? '#f1f5f9' : '#ffffff';
   const coloredSvg = options?.iconColor
     ? `<span style="color:${options.iconColor};">${iconSvg}</span>`
     : iconSvg;
   const finalSvg = withMsoIconFallback(coloredSvg);
-  return `<span class="${cls}">${finalSvg}<span class="chip-text">${name}</span></span>`;
+  const style = options?.muted ? CHIP_MUTED_STYLE : CHIP_BASE_STYLE;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="${cls}" style="display:inline-table;vertical-align:middle;border-collapse:separate;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr><td class="${cls} ${cls}-td" bgcolor="${bg}" style="${style}">${finalSvg}<span class="chip-text">${safeName}</span></td></tr></table>`;
 }
 
 /**
@@ -234,9 +259,9 @@ export function buildCoAssigneesChip(
     const initials = a.name.substring(0, 2).toUpperCase();
     const style = `display:inline-block;vertical-align:middle;width:24px;height:24px;border-radius:50%;border:2px solid #ffffff;${i > 0 ? 'margin-left:-6px;' : ''}`;
     if (a.picUrl) {
-      avatarsHtml += `<img class="co-avatar-img" src="${a.picUrl}" width="24" height="24" style="${style}object-fit:cover;" title="${a.name}" />`;
+      avatarsHtml += `<img class="co-avatar-img" src="${a.picUrl}" width="24" height="24" style="${style}object-fit:cover;" title="${escapeHtml(a.name)}" />`;
     } else {
-      avatarsHtml += `<span class="co-avatar-initials" style="${style}background:#0ea5e9;color:#ffffff;font-size:9px;font-weight:700;line-height:20px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;" title="${a.name}">${initials}</span>`;
+      avatarsHtml += `<span class="co-avatar-initials" style="${style}background:#0ea5e9;color:#ffffff;font-size:9px;font-weight:700;line-height:20px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;" title="${escapeHtml(a.name)}">${initials}</span>`;
     }
   });
 
@@ -251,7 +276,7 @@ export function buildChangeValue(
   newHtml: string,
 ): string {
   const arrow = '<span class="change-arrow" style="color:#94a3b8;font-size:13px;line-height:1;padding:0 4px;vertical-align:middle;display:inline-block;white-space:nowrap;">&rarr;</span>';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;margin-left:auto;padding:0;float:right;white-space:nowrap;"><tr>
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" style="border:none !important;border-collapse:collapse;display:inline-table;vertical-align:middle;margin:0;padding:0;white-space:nowrap;mso-table-lspace:0pt;mso-table-rspace:0pt;"><tr>
     <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;white-space:nowrap;">${oldHtml}</td>
     <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0 4px;vertical-align:middle;border-collapse:collapse;text-align:center;white-space:nowrap;">${arrow}</td>
     <td valign="middle" style="border:none !important;border-bottom:none !important;padding:0;vertical-align:middle;border-collapse:collapse;text-align:right;white-space:nowrap;">${newHtml}</td>

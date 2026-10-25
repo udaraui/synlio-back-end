@@ -136,6 +136,10 @@ export function buildMasterEmailStyles(): string {
       border: none !important;
       border-bottom: none !important;
     }
+    .meta-row-last td,
+    tr.meta-row-last > td {
+      border-bottom: none !important;
+    }
     .meta-label {
       white-space: nowrap !important;
       width: 1% !important;
@@ -159,9 +163,20 @@ export function buildMasterEmailStyles(): string {
     }
 
     /* ── Chip Badges: rounded-md (6px) ── */
+    table.chip {
+      display: inline-table !important;
+      vertical-align: middle !important;
+      border-collapse: separate !important;
+    }
     .chip {
-      display: inline-block;
       white-space: nowrap !important;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 18px;
+      font-family: ${fontFamily};
+      vertical-align: middle;
+    }
+    td.chip-td {
       padding: 2px 8px;
       border-radius: 6px;
       font-size: 12px;
@@ -173,8 +188,9 @@ export function buildMasterEmailStyles(): string {
       box-shadow: 0 1px 2px rgba(0,0,0,0.03);
       font-family: ${fontFamily};
       vertical-align: middle;
+      white-space: nowrap !important;
     }
-    .chip-muted {
+    .chip-muted, td.chip-muted, .chip-muted td.chip-td {
       background: #f1f5f9;
       background-color: #f1f5f9;
       color: ${light.textMuted};
@@ -406,10 +422,13 @@ export function buildMasterEmailStyles(): string {
       .meta {
         background: ${dark.cardBg} !important;
         background-color: ${dark.cardBg} !important;
-        border-top-color: ${dark.borderDivider} !important;
+        border-top: 1px solid ${dark.borderDivider} !important;
       }
       .meta-label, .meta-value, tr.meta-row > td {
-        border-bottom-color: ${dark.borderDivider} !important;
+        border-bottom: 1px solid ${dark.borderDivider} !important;
+      }
+      .meta-row-last td, tr.meta-row-last > td {
+        border-bottom: none !important;
       }
       .meta table, .meta table tr, .meta table td {
         border: none !important;
@@ -421,7 +440,7 @@ export function buildMasterEmailStyles(): string {
       .cta {
         background: ${dark.cardBg} !important;
         background-color: ${dark.cardBg} !important;
-        border-top-color: ${dark.borderDivider} !important;
+        border-top: 1px solid ${dark.borderDivider} !important;
       }
       .cta-btn, a.cta-btn, a.cta-btn:visited, a.cta-btn:hover, a.cta-btn:active,
       .x_cta-btn, .x_cta-btn:visited, a.x_cta-btn, a.x_cta-btn:visited {
@@ -455,7 +474,7 @@ export function buildMasterEmailStyles(): string {
       .avatar, .user-avatar-initials { color: ${dark.btnText} !important; }
       .user-name { color: #f8fafc !important; }
       /* Chips */
-      .chip {
+      .chip, td.chip-td, table.chip {
         background: ${dark.chipBg} !important;
         background-color: ${dark.chipBg} !important;
         background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
@@ -463,7 +482,7 @@ export function buildMasterEmailStyles(): string {
         border-color: ${dark.chipBorder} !important;
         box-shadow: none !important;
       }
-      .chip-muted {
+      .chip-muted, td.chip-muted, .chip-muted td.chip-td {
         background: ${dark.chipBg} !important;
         background-color: ${dark.chipBg} !important;
         background-image: linear-gradient(${dark.chipBg}, ${dark.chipBg}) !important;
@@ -513,25 +532,26 @@ export function buildMasterEmailStyles(): string {
     [data-ogsb] .header { background-color: ${dark.headerBg} !important; background: ${dark.headerBg} !important; background-image: linear-gradient(${dark.headerBg},${dark.headerBg}) !important; }
     [data-ogsc] .header { background-color: ${dark.headerBg} !important; background: ${dark.headerBg} !important; background-image: linear-gradient(${dark.headerBg},${dark.headerBg}) !important; }
 
-    /* Meta: background + border COLOR only */
-    [data-ogsb] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsc] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsb] table.meta { border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsc] table.meta { border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsb] .meta-label { border-bottom-color: ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
-    [data-ogsc] .meta-label { border-bottom-color: ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
-    [data-ogsb] .meta-value { border-bottom-color: ${dark.borderDivider} !important; color: #f8fafc !important; }
-    [data-ogsc] .meta-value { border-bottom-color: ${dark.borderDivider} !important; color: #f8fafc !important; }
-    [data-ogsb] tr.meta-row > td { border-bottom-color: ${dark.borderDivider} !important; }
-    [data-ogsc] tr.meta-row > td { border-bottom-color: ${dark.borderDivider} !important; }
+    /* Meta: background + border in Outlook Dark Mode */
+    [data-ogsb] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] .meta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsb] table.meta { border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] table.meta { border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsb] .meta-label { border-bottom: 1px solid ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
+    [data-ogsc] .meta-label { border-bottom: 1px solid ${dark.borderDivider} !important; color: ${dark.textMuted} !important; }
+    [data-ogsb] .meta-value { border-bottom: 1px solid ${dark.borderDivider} !important; color: #f8fafc !important; }
+    [data-ogsc] .meta-value { border-bottom: 1px solid ${dark.borderDivider} !important; color: #f8fafc !important; }
+    [data-ogsb] tr.meta-row > td { border-bottom: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] tr.meta-row > td { border-bottom: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsb] .meta-row-last td, [data-ogsc] .meta-row-last td { border-bottom: none !important; }
     [data-ogsb] .meta table td { border: none !important; }
     [data-ogsc] .meta table td { border: none !important; }
 
-    /* CTA: background + border COLOR only */
-    [data-ogsb] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsc] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsb] div.cta { border-top-color: ${dark.borderDivider} !important; }
-    [data-ogsc] div.cta { border-top-color: ${dark.borderDivider} !important; }
+    /* CTA: background + border in Outlook Dark Mode */
+    [data-ogsb] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] .cta { background-color: ${dark.cardBg} !important; background: ${dark.cardBg} !important; background-image: linear-gradient(${dark.cardBg},${dark.cardBg}) !important; border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsb] div.cta { border-top: 1px solid ${dark.borderDivider} !important; }
+    [data-ogsc] div.cta { border-top: 1px solid ${dark.borderDivider} !important; }
 
     /* CTA Button */
     [data-ogsb] .cta-btn-cell { background-color: ${dark.btnBg} !important; background-image: linear-gradient(${dark.btnBg},${dark.btnBg}) !important; }
@@ -561,6 +581,8 @@ export function buildMasterEmailStyles(): string {
 
     /* Chips — scoped selectors to avoid hitting .chip-dot */
     [data-ogsb] .chip, [data-ogsc] .chip,
+    [data-ogsb] td.chip-td, [data-ogsc] td.chip-td,
+    [data-ogsb] table.chip, [data-ogsc] table.chip,
     [data-ogsb] span.chip, [data-ogsc] span.chip {
       background-color: ${dark.chipBg} !important;
       background: ${dark.chipBg} !important;
@@ -570,6 +592,7 @@ export function buildMasterEmailStyles(): string {
       box-shadow: none !important;
     }
     [data-ogsb] .chip-muted, [data-ogsc] .chip-muted,
+    [data-ogsb] td.chip-muted, [data-ogsc] td.chip-muted,
     [data-ogsb] span.chip-muted, [data-ogsc] span.chip-muted {
       background-color: ${dark.chipBg} !important;
       background: ${dark.chipBg} !important;
@@ -630,12 +653,15 @@ export function buildMasterEmailStyles(): string {
     body.dark .meta, [data-theme="dark"] .meta, html.dark .meta {
       background: ${dark.cardBg} !important;
       background-color: ${dark.cardBg} !important;
-      border-top-color: ${dark.borderDivider} !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
     }
     body.dark .meta-label, [data-theme="dark"] .meta-label, html.dark .meta-label,
     body.dark .meta-value, [data-theme="dark"] .meta-value, html.dark .meta-value,
     body.dark tr.meta-row > td, [data-theme="dark"] tr.meta-row > td, html.dark tr.meta-row > td {
-      border-bottom-color: ${dark.borderDivider} !important;
+      border-bottom: 1px solid ${dark.borderDivider} !important;
+    }
+    body.dark .meta-row-last td, [data-theme="dark"] .meta-row-last td, html.dark .meta-row-last td {
+      border-bottom: none !important;
     }
     body.dark .meta table td, [data-theme="dark"] .meta table td, html.dark .meta table td {
       border: none !important;
@@ -650,7 +676,7 @@ export function buildMasterEmailStyles(): string {
     body.dark .cta, [data-theme="dark"] .cta, html.dark .cta {
       background: ${dark.cardBg} !important;
       background-color: ${dark.cardBg} !important;
-      border-top-color: ${dark.borderDivider} !important;
+      border-top: 1px solid ${dark.borderDivider} !important;
     }
     body.dark .cta-btn-cell, [data-theme="dark"] .cta-btn-cell, html.dark .cta-btn-cell {
       background-color: ${dark.btnBg} !important;
@@ -677,7 +703,9 @@ export function buildMasterEmailStyles(): string {
     body.dark .avatar, [data-theme="dark"] .avatar, html.dark .avatar,
     body.dark .user-avatar-initials, [data-theme="dark"] .user-avatar-initials, html.dark .user-avatar-initials { color: ${dark.btnText} !important; }
     body.dark .user-name, [data-theme="dark"] .user-name, html.dark .user-name { color: #f8fafc !important; }
-    body.dark .chip, [data-theme="dark"] .chip, html.dark .chip {
+    body.dark .chip, [data-theme="dark"] .chip, html.dark .chip,
+    body.dark td.chip-td, [data-theme="dark"] td.chip-td, html.dark td.chip-td,
+    body.dark table.chip, [data-theme="dark"] table.chip, html.dark table.chip {
       background: ${dark.chipBg} !important;
       background-color: ${dark.chipBg} !important;
       background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
@@ -685,7 +713,8 @@ export function buildMasterEmailStyles(): string {
       border-color: ${dark.chipBorder} !important;
       box-shadow: none !important;
     }
-    body.dark .chip-muted, [data-theme="dark"] .chip-muted, html.dark .chip-muted {
+    body.dark .chip-muted, [data-theme="dark"] .chip-muted, html.dark .chip-muted,
+    body.dark td.chip-muted, [data-theme="dark"] td.chip-muted, html.dark td.chip-muted {
       background: ${dark.chipBg} !important;
       background-color: ${dark.chipBg} !important;
       background-image: linear-gradient(${dark.chipBg},${dark.chipBg}) !important;
@@ -748,6 +777,9 @@ export function buildMasterEmailStyles(): string {
     body.light tr.meta-row > td, [data-theme="light"] tr.meta-row > td, html.light tr.meta-row > td {
       border-bottom-color: ${light.borderDivider} !important;
     }
+    body.light .meta-row-last td, [data-theme="light"] .meta-row-last td, html.light .meta-row-last td {
+      border-bottom: none !important;
+    }
     body.light .meta table td, [data-theme="light"] .meta table td, html.light .meta table td {
       border: none !important;
       border-bottom: none !important;
@@ -784,13 +816,16 @@ export function buildMasterEmailStyles(): string {
     body.light .avatar, [data-theme="light"] .avatar, html.light .avatar,
     body.light .user-avatar-initials, [data-theme="light"] .user-avatar-initials, html.light .user-avatar-initials { color: ${light.btnText} !important; }
     body.light .user-name, [data-theme="light"] .user-name, html.light .user-name { color: ${light.textPrimary} !important; }
-    body.light .chip, [data-theme="light"] .chip, html.light .chip {
+    body.light .chip, [data-theme="light"] .chip, html.light .chip,
+    body.light td.chip-td, [data-theme="light"] td.chip-td, html.light td.chip-td,
+    body.light table.chip, [data-theme="light"] table.chip, html.light table.chip {
       background: ${light.chipBg} !important;
       background-color: ${light.chipBg} !important;
       color: ${light.chipText} !important;
       border-color: #cbd5e1 !important;
     }
-    body.light .chip-muted, [data-theme="light"] .chip-muted, html.light .chip-muted {
+    body.light .chip-muted, [data-theme="light"] .chip-muted, html.light .chip-muted,
+    body.light td.chip-muted, [data-theme="light"] td.chip-muted, html.light td.chip-muted {
       background: #f1f5f9 !important;
       background-color: #f1f5f9 !important;
       color: ${light.textMuted} !important;

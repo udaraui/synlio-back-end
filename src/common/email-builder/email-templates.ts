@@ -1,5 +1,6 @@
 import { buildMasterEmailLayout, MasterEmailLayoutOptions } from './email-layout';
 import { getSynlioLogoUrl, SYNLIO_LOGO_URL, SYNLIO_LOGO_DATA_URI } from './email-tokens';
+import { escapeHtml } from './email-components';
 
 export type { MasterEmailLayoutOptions };
 export { buildMasterEmailLayout, getSynlioLogoUrl, SYNLIO_LOGO_URL, SYNLIO_LOGO_DATA_URI };
@@ -45,19 +46,21 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   if (breadcrumb) {
     const parts = breadcrumb.split('/');
     if (parts.length > 1) {
-      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;">${parts[0].trim()} &nbsp;<span style="color:#94a3b8;font-weight:normal;">/</span>&nbsp; <span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${parts.slice(1).join('/').trim()}</span></div>`;
+      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;">${escapeHtml(parts[0].trim())} &nbsp;<span style="color:#94a3b8;font-weight:normal;">/</span>&nbsp; <span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${escapeHtml(parts.slice(1).join('/').trim())}</span></div>`;
     } else {
-      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;"><span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${breadcrumb}</span></div>`;
+      breadcrumbHtml = `<div class="breadcrumb" style="font-size:12px;font-weight:500;color:#64748b;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif;"><span class="breadcrumb-item" style="color:#0284c7;font-weight:600;">${escapeHtml(breadcrumb)}</span></div>`;
     }
   }
 
   let actorRowHtml = '';
   if (actorName || actionSentence) {
+    const safeActorName = escapeHtml(actorName);
+    const safeInitials = escapeHtml(actorInitials);
     const avatarHtml = actorProfilePicUrl
-      ? `<img class="avatar" src="${actorProfilePicUrl}" alt="${actorName}" width="28" height="28" style="display:block;border-radius:50%;object-fit:cover;"/>`
-      : `<span class="avatar user-avatar-initials" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;background-color:#0ea5e9;color:#ffffff;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;text-align:center;line-height:28px;">${actorInitials}</span>`;
+      ? `<img class="avatar" src="${escapeHtml(actorProfilePicUrl)}" alt="${safeActorName}" width="28" height="28" style="display:block;border-radius:50%;object-fit:cover;"/>`
+      : `<span class="avatar user-avatar-initials" style="display:inline-block;vertical-align:middle;width:28px;height:28px;border-radius:50%;background-color:#0ea5e9;color:#ffffff;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;text-align:center;line-height:28px;">${safeInitials}</span>`;
 
-    const rawSentence = actionSentence || `<strong>${actorName}</strong> updated this project`;
+    const rawSentence = actionSentence || `<strong>${safeActorName}</strong> updated this project`;
     const sentence = rawSentence.replace(
       /<strong(\b[^>]*)>/gi,
       '<strong$1 class="actor-name" style="color:#0f172a;font-weight:600;">'
@@ -77,21 +80,24 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
 
   let descriptionHtml = '';
   if (description) {
-    descriptionHtml = `<p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0 0 14px 0;font-family:'Plus Jakarta Sans',sans-serif;">${description}</p>`;
+    descriptionHtml = `<p class="ticket-desc" style="font-size:13.5px;color:#334155;line-height:1.6;margin:0 0 14px 0;font-family:'Plus Jakarta Sans',sans-serif;">${escapeHtml(description)}</p>`;
   }
 
   let metaHtml = '';
   if (metaRows && metaRows.length > 0) {
-    const rowsHtml = metaRows.map((row) => {
-      return `<tr class="meta-row"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;border-bottom:1px solid #e2e8f0;">${row.label}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;border-bottom:1px solid #e2e8f0;">${row.valueHtml}</td></tr>`;
+    const rowsHtml = metaRows.map((row, index) => {
+      const isLast = index === metaRows.length - 1;
+      const borderBottom = isLast ? 'border-bottom:none;' : 'border-bottom:1px solid rgba(0,0,0,0.08);';
+      const lastClass = isLast ? ' meta-row-last' : '';
+      return `<tr class="meta-row${lastClass}"><td class="meta-label" valign="middle" style="white-space:nowrap;font-size:13px;font-weight:500;color:#64748b;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 12px 12px 24px;vertical-align:middle;text-align:left;${borderBottom}">${escapeHtml(row.label)}</td><td class="meta-value" valign="middle" style="white-space:nowrap;font-size:13px;color:#0f172a;font-weight:500;font-family:'Plus Jakarta Sans',sans-serif;padding:12px 24px 12px 12px;vertical-align:middle;text-align:right;${borderBottom}">${row.valueHtml}</td></tr>`;
     }).join('');
 
-    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-collapse:collapse;width:100%;border-top:1px solid #e2e8f0;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
+    metaHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="meta" style="background-color:#ffffff;border-collapse:collapse;width:100%;border-top:1px solid rgba(0,0,0,0.08);mso-table-lspace:0pt;mso-table-rspace:0pt;">${rowsHtml}</table>`;
   }
 
   const hasMeta = Boolean(metaRows && metaRows.length > 0);
   const ctaClass = hasMeta ? 'cta' : 'cta cta-standalone';
-  const ctaInlineBorder = hasMeta ? 'border-top:none;' : 'border-top:1px solid #e2e8f0;';
+  const ctaInlineBorder = 'border-top:1px solid rgba(0,0,0,0.08);';
 
   let ctaHtml = '';
   if (ctaUrl) {
@@ -103,7 +109,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
               <a href="${ctaUrl}" target="_blank" class="cta-btn" style="display:inline-block;background-color:#0ea5e9;background-image:linear-gradient(#0ea5e9,#0ea5e9);color:#ffffff !important;font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;padding:10px 24px;border-radius:6px;text-decoration:none !important;border:none !important;outline:none !important;line-height:1.4;-webkit-text-size-adjust:none;box-shadow:0 1px 3px rgba(14,165,233,0.3);">
                 <!--[if mso]><i style="letter-spacing: 24px; mso-font-width: -100%;" hidden>&nbsp;</i><![endif]-->
                 <font color="#ffffff" class="cta-btn-font" style="color:#ffffff !important;text-decoration:none !important;border:none !important;">
-                  <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;display:inline-block;border:none !important;">${ctaLabel}</span>&nbsp;<span class="cta-btn-arrow" style="color:#ffffff !important;text-decoration:none !important;font-size:14px;font-weight:bold;line-height:1;display:inline-block;vertical-align:middle;border:none !important;">&#8599;</span>
+                  <span class="cta-btn-text" style="color:#ffffff !important;text-decoration:none !important;font-weight:600;display:inline-block;border:none !important;">${escapeHtml(ctaLabel)}</span>
                 </font>
                 <!--[if mso]><i style="letter-spacing: 24px; mso-font-width: -100%" hidden>&nbsp;</i><![endif]-->
               </a>
@@ -120,7 +126,7 @@ export function buildEmailHtml(options: EmailTemplateOptions): string {
   const bodyHtml = `
     <div class="hero" style="background-color:#ffffff;padding:24px 28px 20px;">
       ${breadcrumbHtml}
-      <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">${title}</h1>
+      <h1 class="ticket-title" style="margin:0 0 10px 0;font-size:19px;font-weight:600;color:#0f172a;line-height:1.35;letter-spacing:-0.01em;font-family:'Plus Jakarta Sans',sans-serif;">${escapeHtml(title)}</h1>
       ${descriptionHtml}
       ${actorRowHtml}
       ${customDetailBlockHtml || ''}
