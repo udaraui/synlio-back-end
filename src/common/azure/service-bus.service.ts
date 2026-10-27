@@ -370,8 +370,21 @@ export class ServiceBusService implements OnModuleInit, OnModuleDestroy {
         : (payload.userEmail ?? 'system');
       const userIdent = rawIdent.slice(0, 50);
 
+      let requestType = payload.requestType;
+      if (!requestType && payload.nodeWiseUsage) {
+        const nodes = Object.keys(payload.nodeWiseUsage);
+        if (nodes.some((n) => n.startsWith('automation_'))) {
+          requestType = 'automation';
+        } else if (nodes.some((n) => ['orchestrator', 'workers', 'ticket_analytics', 'project_analytics', 'resource_analytics', 'tool_executor'].includes(n))) {
+          requestType = 'analytics';
+        } else {
+          requestType = 'general_chat';
+        }
+      }
+
       const entity = repo.create({
         ...payload,
+        requestType: requestType || 'analytics',
         createdBy: userIdent,
         updatedBy: userIdent,
       });

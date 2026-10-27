@@ -8,6 +8,7 @@ import { NodeUsageDetailDto } from './dto/ai-audit-payload.dto';
 @Index('idx_ai_audit_company_created', ['companyId', 'createdAt'])
 @Index('idx_ai_audit_user_created', ['userId', 'createdAt'])
 @Index('idx_ai_audit_status', ['status'])
+@Index('idx_ai_audit_request_type', ['requestType'])
 export class AiAuditLog extends BaseEntity {
   // ── Correlation & User Context ──────────────────────────────────────────
   @Column({ type: 'varchar', length: 64, nullable: false })
@@ -30,6 +31,9 @@ export class AiAuditLog extends BaseEntity {
 
   @Column({ type: 'varchar', length: 32, nullable: false, default: 'panel' })
   chatMode: string; // 'panel' | 'full'
+
+  @Column({ type: 'varchar', length: 32, nullable: false, default: 'analytics' })
+  requestType: string; // 'automation' | 'analytics' | 'general_chat'
 
   // ── High-Level Conversation & Result ────────────────────────────────────
   @Column({ type: 'text', nullable: false })

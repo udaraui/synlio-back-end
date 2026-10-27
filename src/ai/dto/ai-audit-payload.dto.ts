@@ -19,6 +19,7 @@ export class AiAuditPayloadDto {
   userEmail?: string | null;
   userName?: string | null;
   chatMode: string;
+  requestType?: string;
   userQuery: string;
   finalResponse?: string | null;
   status: string;
