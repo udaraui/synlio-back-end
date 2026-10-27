@@ -2085,6 +2085,19 @@ export class TicketService {
           where: { id: dto.assigneeId },
         });
 
+        // Fallback: if dto.assigneeId was provided as userId instead of ticket_space_member.id
+        if (!permission && (dto.ticketSpaceId || ticket.ticketSpaceId)) {
+          permission = await this.entityManager.findOne(TicketSpaceMember, {
+            where: {
+              userId: dto.assigneeId,
+              ticketSpaceId: dto.ticketSpaceId || ticket.ticketSpaceId,
+            },
+          });
+          if (permission) {
+            ticket.assigneeId = permission.id;
+          }
+        }
+
         console.log('permission', permission);
       }
       if (permission) {
