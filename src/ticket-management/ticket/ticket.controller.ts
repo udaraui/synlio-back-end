@@ -176,7 +176,10 @@ export class TicketController {
 
   @AuthorizationPermissions('103')
   @Post()
-  create(@Body() createTicketDto: CreateTicketDto, @Request() req: any) {
+  create(
+    @Body() createTicketDto: CreateTicketDto | CreateTicketDto[],
+    @Request() req: any,
+  ) {
     const activeCompanyId = req.activeCompany?.companyId;
     return this.ticketService.create(
       createTicketDto,

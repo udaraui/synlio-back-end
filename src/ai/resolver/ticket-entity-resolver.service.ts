@@ -28,7 +28,10 @@ export class TicketEntityResolverService {
       const allWarnings: string[] = [];
       for (const d of draftOrDrafts) {
         const res = await this.resolveSingleDraft(d, companyId, allowedSpaceIds, currentUser);
-        resolvedList.push(res.resolvedDraft);
+        resolvedList.push({
+          ...res.resolvedDraft,
+          warnings: res.warnings,
+        });
         for (const w of res.warnings) {
           if (!allWarnings.includes(w)) {
             allWarnings.push(w);
@@ -135,42 +138,61 @@ export class TicketEntityResolverService {
       let matchedMember: any = null;
 
       if (resolvedSpaceId) {
+        // Query space members joined with user table to tolerate nulls, whitespace, and denormalized lag
+        const members: Array<{ id: number; userId: number; userFirstName: string; userLastName: string; userEmail: string }> = await this.entityManager.query(
+          `SELECT m."id", m."userId",
+                  COALESCE(NULLIF(TRIM(m."userFirstName"), ''), TRIM(u.first_name), '') AS "userFirstName",
+                  COALESCE(NULLIF(TRIM(m."userLastName"), ''), TRIM(u.last_name), '') AS "userLastName",
+                  COALESCE(NULLIF(TRIM(m."userEmail"), ''), TRIM(u.email), '') AS "userEmail"
+           FROM ticket_space_member m
+           LEFT JOIN "user" u ON u.id = m."userId"
+           WHERE m."ticketSpaceId" = $1`,
+          [resolvedSpaceId]
+        );
+
         // If user says "me", "myself", "i", or "self", match with currentUser
         if (targetUser === 'me' || targetUser === 'myself' || targetUser === 'i' || targetUser === 'self') {
           const userEmail = (currentUser?.email || currentUser?.userEmail || '').trim().toLowerCase();
           const userId = Number(currentUser?.userId || currentUser?.id || 0);
 
-          if (userEmail || userId > 0) {
-            const memberRows: Array<{ id: number; userId: number; userFirstName: string; userLastName: string; userEmail: string }> = await this.entityManager.query(
-              `SELECT "id", "userId", "userFirstName", "userLastName", "userEmail"
-               FROM ticket_space_member
-               WHERE "ticketSpaceId" = $1 AND (
-                 (LOWER("userEmail") = $2 AND $2 != '') OR 
-                 ($3 > 0 AND "userId" = $3)
-               )`,
-              [resolvedSpaceId, userEmail, userId]
-            );
-
-            if (memberRows.length > 0) {
-              matchedMember = memberRows[0];
-            }
-          }
-        } else {
-          const memberRows: Array<{ id: number; userId: number; userFirstName: string; userLastName: string; userEmail: string }> = await this.entityManager.query(
-            `SELECT "id", "userId", "userFirstName", "userLastName", "userEmail"
-             FROM ticket_space_member
-             WHERE "ticketSpaceId" = $1 AND (
-               LOWER("userFirstName") LIKE $2 OR 
-               LOWER("userLastName") LIKE $2 OR 
-               LOWER(CONCAT("userFirstName", ' ', "userLastName")) LIKE $2 OR
-               LOWER("userEmail") LIKE $2
-             )`,
-            [resolvedSpaceId, `%${targetUser}%`]
+          matchedMember = members.find(
+            (m) =>
+              (userEmail && m.userEmail.toLowerCase() === userEmail) ||
+              (userId > 0 && Number(m.userId) === userId)
           );
+        } else {
+          const normalizedTarget = targetUser.replace(/\s+/g, ' ').trim();
 
-          if (memberRows.length === 1) {
-            matchedMember = memberRows[0];
-          } else if (memberRows.length > 1) {
+          // 1. Exact match on full name, email, or email username
+          let matchedList = members.filter((m) => {
+            const full = `${m.userFirstName} ${m.userLastName}`.toLowerCase().replace(/\s+/g, ' ').trim();
+            const email = (m.userEmail || '').toLowerCase().trim();
+            const emailPrefix = email.split('@')[0];
+            return full === normalizedTarget || email === normalizedTarget || emailPrefix === normalizedTarget;
+          });
+
+          // 2. Fuzzy inclusion match (whitespace resilient)
+          if (matchedList.length === 0) {
+            matchedList = members.filter((m) => {
+              const full = `${m.userFirstName} ${m.userLastName}`.toLowerCase().replace(/\s+/g, ' ').trim();
+              const first = (m.userFirstName || '').toLowerCase().trim();
+              const last = (m.userLastName || '').toLowerCase().trim();
+              const email = (m.userEmail || '').toLowerCase().trim();
+              return (
+                full.includes(normalizedTarget) ||
+                normalizedTarget.includes(full) ||
+                (first && normalizedTarget === first) ||
+                (last && normalizedTarget === last) ||
+                (first && normalizedTarget.includes(first)) ||
+                (last && normalizedTarget.includes(last)) ||
+                email.includes(normalizedTarget)
+              );
+            });
+          }
+
+          if (matchedList.length === 1) {
+            matchedMember = matchedList[0];
+          } else if (matchedList.length > 1) {
             warnings.push(`Multiple team members found matching "${resolved.assigneeName}". Please choose an assignee in the card.`);
           }
         }

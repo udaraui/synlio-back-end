@@ -302,9 +302,12 @@ export class TicketService {
     return this.getNextTicketCode(ticketSpace);
   }
 
-  async getNextTicketCode(ticketSpace: TicketSpace): Promise<{ code: string }> {
+  async getNextTicketCode(
+    ticketSpace: TicketSpace,
+    manager: EntityManager = this.entityManager,
+  ): Promise<{ code: string }> {
     const generated = await this.postSequenceService.generateAndAssignCode(
-      this.entityManager,
+      manager,
       ticketSpace.companyId,
       ticketSpace.id!,
       SequencePostType.TKT,
@@ -313,178 +316,227 @@ export class TicketService {
   }
 
   async create(
-    createTicketDto: CreateTicketDto,
+    createTicketDto: CreateTicketDto | CreateTicketDto[],
     authUser: any,
     activeCompanyId?: number,
   ) {
-    const savedTicket = await this.entityManager.transaction(
+    const isArray = Array.isArray(createTicketDto);
+    const dtos = isArray ? createTicketDto : [createTicketDto];
+
+    if (dtos.length === 0) {
+      return isArray ? [] : null;
+    }
+
+    const savedTickets = await this.entityManager.transaction(
       async (transactionalEntityManager) => {
-        const newTicket = new Ticket();
-        const {
-          participantIds,
-          participants,
-          code: providedCode,
-          ...ticketData
-        } = createTicketDto;
-        Object.assign(newTicket, ticketData);
+        const ticketSpaceCache = new Map<number, TicketSpace>();
+        const creatorMemberCache = new Map<number, TicketSpaceMember | null>();
+        const createdList: Ticket[] = [];
 
-        const where: any = { id: createTicketDto.ticketSpaceId };
-        if (activeCompanyId && activeCompanyId !== 0) {
-          where.companyId = activeCompanyId;
-          newTicket.companyId = activeCompanyId;
-        }
+        for (const dto of dtos) {
+          const newTicket = new Ticket();
+          const {
+            participantIds,
+            participants,
+            code: providedCode,
+            ...ticketData
+          } = dto;
+          Object.assign(newTicket, ticketData);
 
-        // 1. Extract values from your incoming DTO (assuming 'dto' is your input)
-        let divisionId = createTicketDto.ticketSpaceDivisionId;
-        let ticketSpaceName = createTicketDto.ticketSpaceName;
-        let ticketSpacePrefix = createTicketDto.ticketSpacePrefix;
-        let companyId = newTicket.companyId;
+          const where: any = { id: dto.ticketSpaceId };
+          if (activeCompanyId && activeCompanyId !== 0) {
+            where.companyId = activeCompanyId;
+            newTicket.companyId = activeCompanyId;
+          }
 
-        // 2. Fallback: If any field is missing, fetch them from the database using the ID
-        if (
-          createTicketDto.ticketSpaceId &&
-          (!divisionId || !ticketSpaceName || !ticketSpacePrefix || !companyId)
-        ) {
-          const ticketSpace = await transactionalEntityManager.findOne(
-            TicketSpace,
-            {
-              where: { id: createTicketDto.ticketSpaceId }, // Or use your custom 'where' object
-              select: ['id', 'prefix', 'name', 'divisionId', 'companyId'],
-            },
-          );
+          // 1. Extract values from incoming DTO
+          let divisionId = dto.ticketSpaceDivisionId;
+          let ticketSpaceName = dto.ticketSpaceName;
+          let ticketSpacePrefix = dto.ticketSpacePrefix;
+          let companyId = newTicket.companyId;
 
-          console.log('ticketSpace', ticketSpace);
+          // 2. Fallback: If any field is missing, fetch them from the database using ID (cached)
+          if (
+            dto.ticketSpaceId &&
+            (!divisionId || !ticketSpaceName || !ticketSpacePrefix || !companyId)
+          ) {
+            let ticketSpace = ticketSpaceCache.get(dto.ticketSpaceId);
+            if (!ticketSpace) {
+              const fetched = await transactionalEntityManager.findOne(
+                TicketSpace,
+                {
+                  where: { id: dto.ticketSpaceId },
+                  select: ['id', 'prefix', 'name', 'divisionId', 'companyId'],
+                },
+              );
+              if (fetched) {
+                ticketSpaceCache.set(dto.ticketSpaceId, fetched);
+                ticketSpace = fetched;
+              }
+            }
 
-          if (ticketSpace) {
-            divisionId = ticketSpace.divisionId;
-            ticketSpaceName = ticketSpace.name;
-            ticketSpacePrefix = ticketSpace.prefix;
-            if (ticketSpace.companyId) {
-               companyId = ticketSpace.companyId;
+            if (ticketSpace) {
+              divisionId = ticketSpace.divisionId;
+              ticketSpaceName = ticketSpace.name;
+              ticketSpacePrefix = ticketSpace.prefix;
+              if (ticketSpace.companyId) {
+                companyId = ticketSpace.companyId;
+              }
             }
           }
-        }
 
-        if (
-          divisionId === undefined ||
-          !ticketSpaceName ||
-          !ticketSpacePrefix
-        ) {
-          throw new BadRequestException(
-            `Valid ticket space information could not be resolved for ID: ${createTicketDto.ticketSpaceId}`,
-          );
-        }
-
-        // 3. Assign the resolved values to your new ticket entity
-        if (createTicketDto.ticketSpaceId) {
-          newTicket.ticketSpaceId = createTicketDto.ticketSpaceId;
-          newTicket.divisionId = divisionId;
-          newTicket.ticketSpaceName = ticketSpaceName;
-          newTicket.ticketSpacePrefix = ticketSpacePrefix;
-
-          // Handle ticket auto-generation code logic
-          if (providedCode) {
-            newTicket.code = providedCode;
-          } else {
-            const ticketSpaceContext = {
-              id: createTicketDto.ticketSpaceId,
-              prefix: ticketSpacePrefix,
-              name: ticketSpaceName,
-              divisionId: divisionId,
-              companyId: companyId,
-            };
-
-            const { code } = await this.getNextTicketCode(
-              ticketSpaceContext as any,
+          if (
+            divisionId === undefined ||
+            !ticketSpaceName ||
+            !ticketSpacePrefix
+          ) {
+            throw new BadRequestException(
+              `Valid ticket space information could not be resolved for ID: ${dto.ticketSpaceId}`,
             );
-            newTicket.code = code;
           }
-        }
 
-        await this.updateDenormalizedFields(newTicket, createTicketDto);
+          // 3. Assign the resolved values to your new ticket entity
+          if (dto.ticketSpaceId) {
+            newTicket.ticketSpaceId = dto.ticketSpaceId;
+            newTicket.divisionId = divisionId;
+            newTicket.ticketSpaceName = ticketSpaceName;
+            newTicket.ticketSpacePrefix = ticketSpacePrefix;
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-        newTicket.createdBy = authUser.email;
+            // Handle ticket auto-generation code logic
+            if (providedCode) {
+              newTicket.code = providedCode;
+            } else {
+              const ticketSpaceContext = {
+                id: dto.ticketSpaceId,
+                prefix: ticketSpacePrefix,
+                name: ticketSpaceName,
+                divisionId: divisionId,
+                companyId: companyId,
+              };
 
-        // Handle participants: prefer full objects over IDs for better performance
-        let participantList: TicketSpaceMember[] = [];
-        if (
-          participants &&
-          Array.isArray(participants) &&
-          participants.length > 0
-        ) {
-          participantList = participants as TicketSpaceMember[];
-        } else if (
-          participantIds &&
-          Array.isArray(participantIds) &&
-          participantIds.length > 0
-        ) {
-          // Only IDs provided - fetch the participant objects
-          participantList = await transactionalEntityManager.find(
-            TicketSpaceMember,
-            {
-              where: { id: In(participantIds) },
-            },
-          );
-
-          console.log('participantList', participantList);
-        }
-
-        if (participantList.length > 0) {
-          newTicket.participants = participantList;
-        }
-
-        const effectiveAssigneeId = newTicket.assigneeId ?? createTicketDto.assigneeId;
-
-        // Auto-add creator as participant (unless creator is the assignee)
-        if (createTicketDto.ticketSpaceId) {
-          const creatorPermission = await transactionalEntityManager.findOne(TicketSpaceMember, {
-            where: { userEmail: authUser.email, ticketSpaceId: createTicketDto.ticketSpaceId }
-          });
-          if (creatorPermission && creatorPermission.id !== effectiveAssigneeId) {
-            if (!newTicket.participants) newTicket.participants = [];
-            if (!newTicket.participants.some(p => p.id === creatorPermission.id)) {
-              newTicket.participants.push(creatorPermission);
+              const { code } = await this.getNextTicketCode(
+                ticketSpaceContext as any,
+                transactionalEntityManager,
+              );
+              newTicket.code = code;
             }
           }
-        }
 
-        // Ensure the assignee is never in the participants list
-        if (effectiveAssigneeId && newTicket.participants) {
-          newTicket.participants = newTicket.participants.filter(
-            (p) => p.id !== effectiveAssigneeId,
+          await this.updateDenormalizedFields(newTicket, dto);
+
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+          newTicket.createdBy = authUser.email;
+
+          // Handle participants: prefer full objects over IDs for better performance
+          let participantList: TicketSpaceMember[] = [];
+          if (
+            participants &&
+            Array.isArray(participants) &&
+            participants.length > 0
+          ) {
+            participantList = participants as TicketSpaceMember[];
+          } else if (
+            participantIds &&
+            Array.isArray(participantIds) &&
+            participantIds.length > 0
+          ) {
+            // Only IDs provided - fetch the participant objects
+            participantList = await transactionalEntityManager.find(
+              TicketSpaceMember,
+              {
+                where: { id: In(participantIds) },
+              },
+            );
+          }
+
+          if (participantList.length > 0) {
+            newTicket.participants = participantList;
+          }
+
+          const effectiveAssigneeId =
+            newTicket.assigneeId ?? dto.assigneeId;
+
+          // Auto-add creator as participant (unless creator is the assignee)
+          if (dto.ticketSpaceId) {
+            let creatorPermission: TicketSpaceMember | null = null;
+            if (creatorMemberCache.has(dto.ticketSpaceId)) {
+              creatorPermission = creatorMemberCache.get(dto.ticketSpaceId)!;
+            } else {
+              creatorPermission = await transactionalEntityManager.findOne(
+                TicketSpaceMember,
+                {
+                  where: {
+                    userEmail: authUser.email,
+                    ticketSpaceId: dto.ticketSpaceId,
+                  },
+                },
+              );
+              creatorMemberCache.set(dto.ticketSpaceId, creatorPermission);
+            }
+
+            if (
+              creatorPermission &&
+              creatorPermission.id !== effectiveAssigneeId
+            ) {
+              if (!newTicket.participants) newTicket.participants = [];
+              if (
+                !newTicket.participants.some(
+                  (p) => p.id === creatorPermission.id,
+                )
+              ) {
+                newTicket.participants.push(creatorPermission);
+              }
+            }
+          }
+
+          // Ensure the assignee is never in the participants list
+          if (effectiveAssigneeId && newTicket.participants) {
+            newTicket.participants = newTicket.participants.filter(
+              (p) => p.id !== effectiveAssigneeId,
+            );
+          }
+
+          // Compute SLA deadlines inline (avoid extra DB round-trip after save)
+          if (newTicket.slaResponseTime || newTicket.slaResolutionTime) {
+            const createdAt = new Date();
+            const baseMs = createdAt.getTime();
+            if (newTicket.slaResponseTime && newTicket.slaResponseTime > 0) {
+              newTicket.slaResponseDeadline = new Date(
+                baseMs + newTicket.slaResponseTime * 60 * 1000,
+              );
+            }
+            if (newTicket.slaResolutionTime && newTicket.slaResolutionTime > 0) {
+              newTicket.slaResolutionDeadline = new Date(
+                baseMs + newTicket.slaResolutionTime * 60 * 1000,
+              );
+            }
+          }
+
+          // Save immediately within transaction so sequence counter query in next iteration sees this code
+          const savedTicket = await transactionalEntityManager.save(
+            Ticket,
+            newTicket,
           );
+
+          createdList.push(savedTicket);
         }
 
-        // Compute SLA deadlines inline (avoid extra DB round-trip after save)
-        if (newTicket.slaResponseTime || newTicket.slaResolutionTime) {
-          const createdAt = new Date();
-          const baseMs = createdAt.getTime();
-          if (newTicket.slaResponseTime && newTicket.slaResponseTime > 0) {
-            newTicket.slaResponseDeadline = new Date(baseMs + newTicket.slaResponseTime * 60 * 1000);
-          }
-          if (newTicket.slaResolutionTime && newTicket.slaResolutionTime > 0) {
-            newTicket.slaResolutionDeadline = new Date(baseMs + newTicket.slaResolutionTime * 60 * 1000);
-          }
-        }
-
-        const savedTicket = await transactionalEntityManager.save(
-          Ticket,
-          newTicket,
-        );
-
-        return savedTicket;
+        return createdList;
       },
     );
 
     // Alert happens after transaction commit (non-blocking)
-    void this.ticketAlertService.dispatchTicketCreated(
-      savedTicket.id!,
-      authUser,
-    );
+    for (const savedTicket of savedTickets) {
+      if (savedTicket.id) {
+        void this.ticketAlertService.dispatchTicketCreated(
+          savedTicket.id,
+          authUser,
+        );
+      }
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return savedTicket;
+    return isArray ? savedTickets : savedTickets[0];
   }
 
   async patchTicket(

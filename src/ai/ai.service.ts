@@ -14,6 +14,58 @@ export class AiService {
     private readonly entityResolverService: TicketEntityResolverService,
   ) {}
 
+  private readonly MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+  private readonly MAX_ATTACHMENTS_COUNT = 5;
+  private readonly ALLOWED_FILE_EXTENSIONS = new Set([
+    '.pdf', '.docx', '.doc', '.txt', '.csv', '.md', '.json',
+  ]);
+
+  private validateAttachments(attachments?: any[]) {
+    if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
+      return;
+    }
+
+    if (attachments.length > this.MAX_ATTACHMENTS_COUNT) {
+      throw new HttpException(
+        `Too many attachments. A maximum of ${this.MAX_ATTACHMENTS_COUNT} files is allowed per request.`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    for (const att of attachments) {
+      if (!att || typeof att !== 'object') continue;
+
+      const filename = String(att.filename || att.name || '').trim();
+      if (!filename) {
+        throw new HttpException('Attachment is missing a filename.', HttpStatus.BAD_REQUEST);
+      }
+
+      const extMatch = filename.match(/\.[^.]+$/);
+      const ext = extMatch ? extMatch[0].toLowerCase() : '';
+      if (!this.ALLOWED_FILE_EXTENSIONS.has(ext)) {
+        throw new HttpException(
+          `Attachment "${filename}" has an unsupported file type (${ext || 'none'}). Allowed extensions are: ${Array.from(this.ALLOWED_FILE_EXTENSIONS).join(', ')}.`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      let approximateSizeBytes = 0;
+      if (typeof att.content === 'string') {
+        const raw = att.content.includes(',') ? att.content.split(',')[1] : att.content;
+        approximateSizeBytes = Math.floor((raw.length * 3) / 4);
+      } else if (typeof att.contentText === 'string') {
+        approximateSizeBytes = Buffer.byteLength(att.contentText, 'utf8');
+      }
+
+      if (approximateSizeBytes > this.MAX_ATTACHMENT_SIZE_BYTES) {
+        throw new HttpException(
+          `Attachment "${filename}" exceeds the maximum allowed size of 10 MB.`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+  }
+
   async processChat(
     message: string,
     conversationId?: string,
@@ -24,7 +76,11 @@ export class AiService {
     chatMode?: string,
     history?: Array<{ role: string; content: string }>,
     pendingDraft?: any,
+    attachments?: any,
   ): Promise<any> {
+    // 0. Validate attachments security (size and allowed formats)
+    this.validateAttachments(attachments);
+
     try {
       const aiServiceUrl = process.env.AI_SERVICE_URL;
 
@@ -112,6 +168,7 @@ export class AiService {
         history,
         pending_draft: pendingDraft,
         pendingDraft: pendingDraft,
+        attachments,
         scope: {
           allowed_ticket_space_ids: allowedTicketSpaceIds,
           allowed_task_space_ids: allowedTaskSpaceIds,
