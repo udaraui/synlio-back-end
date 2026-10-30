@@ -173,6 +173,37 @@ export class UpdateMeetingProvidersDto {
 
 export class ResponseCompanyDto extends BaseDto {
   @ApiProperty({
+    description: 'Whether the company is self-registered',
+    example: false,
+    required: false,
+  })
+  @IsOptional()
+  is_self_registered_company?: boolean;
+
+  @ApiProperty({
+    description: 'Alias for whether the company is self-created',
+    example: false,
+    required: false,
+  })
+  @IsOptional()
+  is_self_created_company?: boolean;
+
+  @ApiProperty({
+    description: 'Creator email for self-created companies (email only, no names)',
+    example: 'creator@example.com',
+    required: false,
+  })
+  @IsOptional()
+  creatorEmail?: string | null;
+
+  @ApiProperty({
+    description: 'Creator relation object containing only the creator email',
+    example: { email: 'creator@example.com' },
+    required: false,
+  })
+  @IsOptional()
+  creator?: { email: string } | null;
+  @ApiProperty({
     description: 'The name of the company',
     example: 'Company 1',
   })

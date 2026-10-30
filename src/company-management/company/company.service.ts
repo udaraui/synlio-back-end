@@ -9,6 +9,7 @@ import { Company } from './company.entity';
 import { EntityManager, In, FindOptionsWhere } from 'typeorm';
 import { ResponseCompanyDto } from './dto/company.dto';
 import { ActiveStatus } from '../../common/enum/status.enum';
+import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 import { UserCompanyView } from '../../user-management/user/user-company-view/user-company.entity';
 import { User } from '../../user-management/user/user.entity';
 import { uploadToAzureCompanyLogo } from '../../common/azure/azure-image-upload';
@@ -33,15 +34,64 @@ export class CompanyService {
     await this.redisService.setUserCompanies(userId, userCompanies);
   }
 
-  getAllCompany(activeCompanyId?: number): Promise<ResponseCompanyDto[]> {
-    const where: any = { isActive: ActiveStatus.ACTIVE };
+  async getAllCompany(activeCompanyId?: number): Promise<ResponseCompanyDto[]> {
+    const qb = this.entityManager
+      .createQueryBuilder(Company, 'company')
+      .leftJoin(
+        User,
+        'creator',
+        'company.is_self_registered_company = :isSelfRegistered AND (creator.email = company.createdBy OR CAST(creator.id AS TEXT) = company.createdBy)',
+        { isSelfRegistered: true },
+      )
+      .leftJoin(
+        'company.users',
+        'selfRegUser',
+        'company.is_self_registered_company = :isSelfRegistered AND selfRegUser.registrationSource = :selfRegSource',
+        {
+          isSelfRegistered: true,
+          selfRegSource: UserRegistrationSource.SELF_REGISTERED,
+        },
+      )
+      .addSelect(['creator.email', 'selfRegUser.id', 'selfRegUser.email'])
+      .where('company.isActive = :isActive', { isActive: ActiveStatus.ACTIVE });
+
     if (activeCompanyId && activeCompanyId !== 0) {
-      where.id = activeCompanyId;
+      qb.andWhere('company.id = :activeCompanyId', { activeCompanyId });
     }
 
-    return this.entityManager.find(Company, {
-      where,
-      order: { id: 'asc' },
+    qb.orderBy('company.id', 'ASC');
+
+    const { entities, raw } = await qb.getRawAndEntities();
+
+    return entities.map((company) => {
+      const isSelfCreated = Boolean(company.is_self_registered_company);
+      const rawRow = raw.find(
+        (r: Record<string, unknown>) => r.company_id === company.id,
+      );
+      const fallbackUserEmail = company.users?.[0]?.email;
+      const creatorEmail = isSelfCreated
+        ? ((rawRow?.creator_email as string | undefined) ||
+            (rawRow?.selfRegUser_email as string | undefined) ||
+            fallbackUserEmail ||
+            company.createdBy ||
+            null)
+        : null;
+
+      const { users: _users, ...companyWithoutUsers } = company;
+
+      return {
+        ...companyWithoutUsers,
+        users: [],
+        is_self_registered_company: isSelfCreated,
+        is_self_created_company: isSelfCreated,
+        ...(isSelfCreated && creatorEmail
+          ? {
+              createdBy: creatorEmail,
+              creatorEmail,
+              creator: { email: creatorEmail },
+            }
+          : {}),
+      };
     });
   }
 
@@ -253,8 +303,6 @@ export class CompanyService {
   //     .andWhere('company.active_status = :active', { active: true })
   //     .getMany();
   // }
-
-
 
   async updateMeetingProviders(
     id: number,
