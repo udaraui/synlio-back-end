@@ -58,11 +58,19 @@ export class UserController {
       }),
     ) file: Express.Multer.File,
   ): Promise<ResponseUserDto> {
+    const rawDto = createUserDto as unknown as Record<string, unknown>;
     if (file && file.filename) {
       createUserDto.profile_picture = file.filename;
+    } else if (
+      !file &&
+      (rawDto.profile_picture === 'null' ||
+        rawDto.profile_picture === null ||
+        rawDto.remove_profile_picture === 'true' ||
+        rawDto.remove_profile_picture === true)
+    ) {
+      rawDto.profile_picture = null;
+      rawDto.remove_profile_picture = true;
     }
-
-    console.log(req.activeCompany);
 
     // Parse JSON fields that come as strings from FormData
     if (
@@ -185,7 +193,17 @@ export class UserController {
       }),
     ) file: Express.Multer.File,
   ): Promise<any> {
-    // Handle file upload
+    // Normalize explicit profile picture removal from FormData or JSON body
+    if (
+      !file &&
+      (user.profile_picture === 'null' ||
+        user.profile_picture === null ||
+        user.remove_profile_picture === 'true' ||
+        user.remove_profile_picture === true)
+    ) {
+      user.profile_picture = null;
+      user.remove_profile_picture = true;
+    }
 
     // Parse JSON fields that come as strings from FormData
     if (user.companyIds && typeof user.companyIds === 'string') {

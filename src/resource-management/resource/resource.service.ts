@@ -22,6 +22,7 @@ import { ResourcePool } from '../resource-pool/resource-pool.entity';
 import { uploadToAzure } from '../../common/azure/azure-image-upload';
 import { normalizeEmail } from '../../common/email-builder';
 import { Ticket } from '../../ticket-management/ticket/ticket.entity';
+import { TicketSpaceMember } from '../../ticket-management/ticket-space-member/ticket-space-member.entity';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { In } from 'typeorm';
 import { Task } from 'src/task-management/task/task.entity';
@@ -89,6 +90,13 @@ export class ResourceService {
     activeCompanyId?: number,
     file?: Express.Multer.File,
   ) {
+    const rawData = data as unknown as Record<string, unknown>;
+    const isProfilePicRemoved =
+      rawData.profile_pic === null ||
+      rawData.profile_pic === 'null' ||
+      rawData.remove_profile_pic === 'true' ||
+      rawData.remove_profile_pic === true;
+
     // Start the transaction
     const savedResource = await this.entityManager.transaction(
       async (transactionalEntityManager) => {
@@ -182,9 +190,15 @@ export class ResourceService {
             savedResource.id as number,
           );
           savedResource = await transactionalEntityManager.save(savedResource);
-        } else if ((data as any).profile_pic_url && typeof (data as any).profile_pic_url === 'string') {
+        } else if (isProfilePicRemoved) {
+          savedResource.profile_pic = null as unknown as string;
+          savedResource = await transactionalEntityManager.save(savedResource);
+        } else if (
+          typeof rawData.profile_pic_url === 'string' &&
+          rawData.profile_pic_url.trim() !== ''
+        ) {
           // Pre-filled from user account — use the URL directly (no re-upload needed)
-          savedResource.profile_pic = (data as any).profile_pic_url;
+          savedResource.profile_pic = rawData.profile_pic_url;
           savedResource = await transactionalEntityManager.save(savedResource);
         }
 
@@ -209,11 +223,6 @@ export class ResourceService {
             !Number.isInteger(parsedSkillLevelId) ||
             !Number.isInteger(parsedSkillCategoryId)
           ) {
-            // console.log(
-            //   parsedSkillId,
-            //   parsedSkillLevelId,
-            //   parsedSkillCategoryId,
-            // );
             throw new BadRequestException(
               'Invalid skill, skillLevel, or skillCategory id.',
             );
@@ -303,7 +312,35 @@ export class ResourceService {
       },
     );
 
-    await this.invalidateTaskSpaceCachesForResource(savedResource?.id);
+    const profilePicChanged = Boolean(file) || isProfilePicRemoved;
+    const nextProfilePicUrl: string | null | undefined = file
+      ? savedResource.profile_pic
+      : isProfilePicRemoved
+        ? null
+        : undefined;
+
+    // Schedule cache invalidation and background synchronization strictly AFTER
+    // the primary HTTP response is returned to the client.
+    setImmediate(() => {
+      void this.invalidateTaskSpaceCachesForResource(savedResource?.id);
+      if (profilePicChanged && savedResource?.email) {
+        void this.propagateResourceProfileUpdate(
+          savedResource.id as number,
+          savedResource.email,
+          {
+            profilePicUrl: nextProfilePicUrl,
+            firstName: savedResource.first_name,
+            lastName: savedResource.last_name,
+          },
+        ).catch((err) =>
+          console.error(
+            '[ResourceService] Background propagateResourceProfileUpdate on create failed:',
+            err,
+          ),
+        );
+      }
+    });
+
     return savedResource;
   }
 
@@ -314,6 +351,13 @@ export class ResourceService {
     activeCompanyId?: number,
     file?: Express.Multer.File,
   ) {
+    const rawData = data as unknown as Record<string, unknown>;
+    const isProfilePicRemoved =
+      rawData.profile_pic === null ||
+      rawData.profile_pic === 'null' ||
+      rawData.remove_profile_pic === 'true' ||
+      rawData.remove_profile_pic === true;
+
     // Start the transaction
     const updatedResource = await this.entityManager.transaction(
       async (transactionalEntityManager) => {
@@ -336,23 +380,41 @@ export class ResourceService {
         }
 
         const rawDivisionId =
-          (data as any).divisionId ?? (data as any).division?.id;
+          (data as any).divisionId ??
+          (data as any).division?.id ??
+          resource.division?.id ??
+          resource.divisionId;
         const rawCalendarId =
-          (data as any).calendarId ?? (data as any).calendar?.id;
+          (data as any).calendarId ??
+          (data as any).calendar?.id ??
+          resource.calendar?.id;
 
         // Security: If not system admin, force the resource to the active company
         const targetCompanyId =
           activeCompanyId !== undefined && activeCompanyId !== 0
             ? activeCompanyId
-            : Number((data as any).companyId || resource.company.id);
+            : Number((data as any).companyId || resource.company?.id || resource.companyId);
 
-        const parsedDivisionId = Number(rawDivisionId);
-        const parsedCalendarId = Number(rawCalendarId);
+        const parsedDivisionId =
+          rawDivisionId !== undefined && rawDivisionId !== null
+            ? Number(rawDivisionId)
+            : undefined;
+        const parsedCalendarId =
+          rawCalendarId !== undefined && rawCalendarId !== null
+            ? Number(rawCalendarId)
+            : undefined;
+
+        const isFullResourceUpdate =
+          data.first_name !== undefined ||
+          data.last_name !== undefined ||
+          (data as any).divisionId !== undefined ||
+          (data as any).calendarId !== undefined;
 
         if (
           !Number.isInteger(targetCompanyId) ||
-          !Number.isInteger(parsedDivisionId) ||
-          !Number.isInteger(parsedCalendarId)
+          (isFullResourceUpdate &&
+            (!Number.isInteger(parsedDivisionId) ||
+              !Number.isInteger(parsedCalendarId)))
         ) {
           throw new BadRequestException(
             'Invalid companyId, divisionId, or calendarId',
@@ -362,27 +424,25 @@ export class ResourceService {
         const companyData = await transactionalEntityManager.findOne(Company, {
           where: { id: targetCompanyId },
         });
-        const divisionData = await transactionalEntityManager.findOne(
-          Division,
-          {
-            where: { id: parsedDivisionId },
-          },
-        );
-        const calendarData = await transactionalEntityManager.findOne(
-          Calendar,
-          {
-            where: { id: parsedCalendarId },
-          },
-        );
+        const divisionData = parsedDivisionId
+          ? await transactionalEntityManager.findOne(Division, {
+              where: { id: parsedDivisionId },
+            })
+          : resource.division;
+        const calendarData = parsedCalendarId
+          ? await transactionalEntityManager.findOne(Calendar, {
+              where: { id: parsedCalendarId },
+            })
+          : resource.calendar;
 
-        if (!companyData || !divisionData) {
+        if (!companyData || (isFullResourceUpdate && !divisionData)) {
           throw new HttpException(
             'Company or Division not found',
             HttpStatus.BAD_REQUEST,
           );
         }
 
-        if (!calendarData) {
+        if (isFullResourceUpdate && !calendarData) {
           // Check if company has ANY calendars
           const hasAnyCalendar = await transactionalEntityManager.count(
             Calendar,
@@ -404,9 +464,13 @@ export class ResourceService {
           );
         }
 
-        // Update base fields
-        resource.first_name = data.first_name;
-        resource.last_name = data.last_name;
+        // Update base fields when provided (preserving existing fields for standalone profile pic removal)
+        if (data.first_name !== undefined) {
+          resource.first_name = data.first_name;
+        }
+        if (data.last_name !== undefined) {
+          resource.last_name = data.last_name;
+        }
         // Email is immutable after creation — it ties Resource ↔ User ↔ Task/Ticket denormalized columns.
         const submittedEmail = data.email ? normalizeEmail(data.email) : null;
         if (submittedEmail && submittedEmail !== resource.email) {
@@ -414,125 +478,150 @@ export class ResourceService {
             'Email cannot be changed after creation.',
           );
         }
-        resource.mobile = data.mobile;
-        resource.working_hours = data.working_hours;
+        if (data.mobile !== undefined) {
+          resource.mobile = data.mobile;
+        }
+        if (data.working_hours !== undefined) {
+          resource.working_hours = Number(data.working_hours);
+        }
         resource.company = companyData;
-        resource.division = divisionData;
-        resource.calendar = calendarData;
+        if (divisionData) {
+          resource.division = divisionData;
+        }
+        if (calendarData) {
+          resource.calendar = calendarData;
+        }
         resource.updatedBy = authUser.email;
         if (data.type !== undefined) {
           resource.type = data.type;
         }
-        const oldReportingPersonId = resource.reportingPersonId;
-        const newReportingPersonId = data.reportingPersonId && Number(data.reportingPersonId) !== 0
-          ? Number(data.reportingPersonId)
-          : null;
-        const updateAll = data.update_all_under_old_reporting_person !== undefined
-          ? String(data.update_all_under_old_reporting_person) === 'true'
-          : false;
 
-        if (updateAll && oldReportingPersonId && oldReportingPersonId !== newReportingPersonId) {
-          await transactionalEntityManager.update(
-            Resource,
-            { reportingPersonId: oldReportingPersonId, companyId: targetCompanyId },
-            { reportingPersonId: newReportingPersonId }
-          );
+        if (data.reportingPersonId !== undefined) {
+          const oldReportingPersonId = resource.reportingPersonId;
+          const newReportingPersonId =
+            data.reportingPersonId && Number(data.reportingPersonId) !== 0
+              ? Number(data.reportingPersonId)
+              : null;
+          const updateAll =
+            data.update_all_under_old_reporting_person !== undefined
+              ? String(data.update_all_under_old_reporting_person) === 'true'
+              : false;
+
+          if (
+            updateAll &&
+            oldReportingPersonId &&
+            oldReportingPersonId !== newReportingPersonId
+          ) {
+            await transactionalEntityManager.update(
+              Resource,
+              {
+                reportingPersonId: oldReportingPersonId,
+                companyId: targetCompanyId,
+              },
+              { reportingPersonId: newReportingPersonId },
+            );
+          }
+
+          resource.reportingPersonId = newReportingPersonId;
         }
 
-        resource.reportingPersonId = newReportingPersonId;
-        resource.active_status =
-          data.active_status !== undefined
-            ? String(data.active_status) === 'true'
-            : true;
+        if (data.active_status !== undefined) {
+          resource.active_status = String(data.active_status) === 'true';
+        }
+
         if (file) {
           resource.profile_pic = await uploadToAzure(
             file,
             resource.id as number,
           );
+        } else if (isProfilePicRemoved) {
+          resource.profile_pic = null as unknown as string;
         }
 
         await transactionalEntityManager.save(Resource, resource);
 
-
-        await transactionalEntityManager.delete(ResourceSkill, {
-          resource: { id: resource.id },
-        });
-
-        let skillsArray = data.skills || [];
-        if (typeof skillsArray === 'string') {
-          try {
-            skillsArray = JSON.parse(skillsArray);
-          } catch (error) {
-            throw new BadRequestException(
-              'Skills must be a valid JSON string or array',
-            );
-          }
-        }
-
-        for (const skillData of skillsArray) {
-          const parsedSkillId = Number(
-            skillData.skill?.id ?? (skillData as any).skillId,
-          );
-          const parsedSkillLevelId = Number(
-            skillData.skillLevel?.id ?? (skillData as any).skillLevelId,
-          );
-          const parsedSkillCategoryId = Number(
-            skillData.skillCategory?.id ?? (skillData as any).skillCategoryId,
-          );
-
-          if (
-            !Number.isInteger(parsedSkillId) ||
-            !Number.isInteger(parsedSkillLevelId) ||
-            !Number.isInteger(parsedSkillCategoryId)
-          ) {
-            throw new BadRequestException(
-              'Invalid skill, skillLevel, or skillCategory id',
-            );
-          }
-
-          const skill = await transactionalEntityManager.findOne(Skill, {
-            where: { id: parsedSkillId },
+        // Only replace skills if `skills` was explicitly provided in the request payload
+        if (data.skills !== undefined) {
+          await transactionalEntityManager.delete(ResourceSkill, {
+            resource: { id: resource.id },
           });
-          const skillLevel = await transactionalEntityManager.findOne(
-            SkillLevel,
-            {
-              where: { id: parsedSkillLevelId },
-            },
-          );
-          const skillCategory = await transactionalEntityManager.findOne(
-            SkillCategories,
-            {
-              where: { id: parsedSkillCategoryId },
-            },
-          );
 
-          if (!skill || !skillLevel || !skillCategory) {
-            throw new HttpException(
-              'Skill, SkillLevel, or SkillCategory not found',
-              HttpStatus.BAD_REQUEST,
-            );
+          let skillsArray = data.skills || [];
+          if (typeof skillsArray === 'string') {
+            try {
+              skillsArray = JSON.parse(skillsArray);
+            } catch (error) {
+              throw new BadRequestException(
+                'Skills must be a valid JSON string or array',
+              );
+            }
           }
 
-          const resourceSkill = transactionalEntityManager.create(
-            ResourceSkill,
-            {
-              resource,
-              resourceId: resource.id,
-              skill,
-              skillId: skill.id,
-              skillName: skill.name,
-              skillLevel,
-              skillLevelId: skillLevel.id,
-              skillLevelName: skillLevel.name,
-              starCount: skillLevel.star_count,
-              skillCategory,
-              skillCategoryId: skillCategory.id,
-              skillCategoryName: skillCategory.name,
-              companyId: targetCompanyId,
-            },
-          );
+          for (const skillData of skillsArray) {
+            const parsedSkillId = Number(
+              skillData.skill?.id ?? (skillData as any).skillId,
+            );
+            const parsedSkillLevelId = Number(
+              skillData.skillLevel?.id ?? (skillData as any).skillLevelId,
+            );
+            const parsedSkillCategoryId = Number(
+              skillData.skillCategory?.id ?? (skillData as any).skillCategoryId,
+            );
 
-          await transactionalEntityManager.save(ResourceSkill, resourceSkill);
+            if (
+              !Number.isInteger(parsedSkillId) ||
+              !Number.isInteger(parsedSkillLevelId) ||
+              !Number.isInteger(parsedSkillCategoryId)
+            ) {
+              throw new BadRequestException(
+                'Invalid skill, skillLevel, or skillCategory id',
+              );
+            }
+
+            const skill = await transactionalEntityManager.findOne(Skill, {
+              where: { id: parsedSkillId },
+            });
+            const skillLevel = await transactionalEntityManager.findOne(
+              SkillLevel,
+              {
+                where: { id: parsedSkillLevelId },
+              },
+            );
+            const skillCategory = await transactionalEntityManager.findOne(
+              SkillCategories,
+              {
+                where: { id: parsedSkillCategoryId },
+              },
+            );
+
+            if (!skill || !skillLevel || !skillCategory) {
+              throw new HttpException(
+                'Skill, SkillLevel, or SkillCategory not found',
+                HttpStatus.BAD_REQUEST,
+              );
+            }
+
+            const resourceSkill = transactionalEntityManager.create(
+              ResourceSkill,
+              {
+                resource,
+                resourceId: resource.id,
+                skill,
+                skillId: skill.id,
+                skillName: skill.name,
+                skillLevel,
+                skillLevelId: skillLevel.id,
+                skillLevelName: skillLevel.name,
+                starCount: skillLevel.star_count,
+                skillCategory,
+                skillCategoryId: skillCategory.id,
+                skillCategoryName: skillCategory.name,
+                companyId: targetCompanyId,
+              },
+            );
+
+            await transactionalEntityManager.save(ResourceSkill, resourceSkill);
+          }
         }
 
         // Handle optional resource cost (upsert)
@@ -591,23 +680,33 @@ export class ResourceService {
       },
     );
 
-    await this.invalidateTaskSpaceCachesForResource(updatedResource?.id ?? id);
+    const profilePicChanged = Boolean(file) || isProfilePicRemoved;
+    const nextProfilePicUrl: string | null | undefined = file
+      ? updatedResource.profile_pic
+      : isProfilePicRemoved
+        ? null
+        : undefined;
 
-    // Fire-and-forget: propagate profile pic and/or name change to linked User,
-    // Tasks and Tickets. Runs after the response is already on its way.
-    this.propagateResourceProfileUpdate(
-      updatedResource.id as number,
-      updatedResource.email,
-      {
-        ...(file && updatedResource?.profile_pic
-          ? { profilePicUrl: updatedResource.profile_pic }
-          : {}),
-        firstName: updatedResource.first_name,
-        lastName: updatedResource.last_name,
-      },
-    ).catch((err) =>
-      console.error('[ResourceService] propagateResourceProfileUpdate failed:', err),
-    );
+    // Decoupled background execution: schedule cache invalidation and cross-entity
+    // profile synchronization via `setImmediate` so the HTTP response is sent
+    // back to the client FIRST before heavy sync queries run.
+    setImmediate(() => {
+      void this.invalidateTaskSpaceCachesForResource(updatedResource?.id ?? id);
+      void this.propagateResourceProfileUpdate(
+        updatedResource.id as number,
+        updatedResource.email,
+        {
+          ...(profilePicChanged ? { profilePicUrl: nextProfilePicUrl } : {}),
+          firstName: updatedResource.first_name,
+          lastName: updatedResource.last_name,
+        },
+      ).catch((err) =>
+        console.error(
+          '[ResourceService] propagateResourceProfileUpdate failed:',
+          err,
+        ),
+      );
+    });
 
     return updatedResource;
   }
@@ -617,38 +716,57 @@ export class ResourceService {
    *   1. The User row with the same email  (profile_picture, first_name, last_name)
    *   2. Every Task where this resource is the assignee  (assigneeProfilePicUrl, assigneeName)
    *   3. Every Ticket where this resource is the assignee  (assigneeProfilePicUrl, assigneeName)
+   *   4. Every TicketSpaceMember with the same email  (userProfilePicture)
    *
-   * Each field is optional — only supplied fields are written.
-   * Fire-and-forget: never delays the HTTP response.
+   * Each field is optional — only supplied fields (including `null` for removal) are written.
+   * Runs strictly in the background after the HTTP response has been sent.
    */
   private async propagateResourceProfileUpdate(
     resourceId: number,
     email: string,
-    opts: { profilePicUrl?: string; firstName?: string; lastName?: string },
+    opts: {
+      profilePicUrl?: string | null;
+      firstName?: string;
+      lastName?: string;
+    },
   ): Promise<void> {
     const { profilePicUrl, firstName, lastName } = opts;
 
     // Build partial update payloads — only include fields that were actually changed
-    const userPatch: Partial<{ profile_picture: string; first_name: string; last_name: string }> = {};
-    const assigneePatch: Partial<{ assigneeProfilePicUrl: string; assigneeName: string }> = {};
+    const userPatch: Partial<{
+      profile_picture: string;
+      first_name: string;
+      last_name: string;
+    }> = {};
+    const assigneePatch: Partial<{
+      assigneeProfilePicUrl: string;
+      assigneeName: string;
+    }> = {};
+    const memberPatch: Partial<{ userProfilePicture: string }> = {};
 
-    if (profilePicUrl) {
-      userPatch.profile_picture = profilePicUrl;
-      assigneePatch.assigneeProfilePicUrl = profilePicUrl;
+    if (profilePicUrl !== undefined) {
+      userPatch.profile_picture = profilePicUrl as unknown as string;
+      assigneePatch.assigneeProfilePicUrl = profilePicUrl as unknown as string;
+      memberPatch.userProfilePicture = profilePicUrl as unknown as string;
     }
     if (firstName !== undefined) userPatch.first_name = firstName;
-    if (lastName !== undefined)  userPatch.last_name  = lastName;
+    if (lastName !== undefined) userPatch.last_name = lastName;
     if (firstName !== undefined || lastName !== undefined) {
       assigneePatch.assigneeName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
     }
 
-    const jobs: Promise<any>[] = [];
+    const jobs: Promise<unknown>[] = [];
 
-    if (Object.keys(userPatch).length > 0) {
+    if (Object.keys(userPatch).length > 0 && email) {
       jobs.push(
         this.entityManager
           .update(User, { email }, userPatch)
-          .catch((err) => console.error('[propagateResourceProfileUpdate] User update failed:', err)),
+          .catch((err) =>
+            console.error(
+              '[propagateResourceProfileUpdate] User update failed:',
+              err,
+            ),
+          ),
       );
     }
 
@@ -656,10 +774,46 @@ export class ResourceService {
       jobs.push(
         this.entityManager
           .update(Task, { assigneeId: resourceId }, assigneePatch)
-          .catch((err) => console.error('[propagateResourceProfileUpdate] Task update failed:', err)),
+          .catch((err) =>
+            console.error(
+              '[propagateResourceProfileUpdate] Task update failed:',
+              err,
+            ),
+          ),
         this.entityManager
           .update(Ticket, { assigneeId: resourceId }, assigneePatch)
-          .catch((err) => console.error('[propagateResourceProfileUpdate] Ticket update failed:', err)),
+          .catch((err) =>
+            console.error(
+              '[propagateResourceProfileUpdate] Ticket (by assigneeId) update failed:',
+              err,
+            ),
+          ),
+      );
+
+      if (email) {
+        jobs.push(
+          this.entityManager
+            .update(Ticket, { assigneeEmail: email }, assigneePatch)
+            .catch((err) =>
+              console.error(
+                '[propagateResourceProfileUpdate] Ticket (by assigneeEmail) update failed:',
+                err,
+              ),
+            ),
+        );
+      }
+    }
+
+    if (Object.keys(memberPatch).length > 0 && email) {
+      jobs.push(
+        this.entityManager
+          .update(TicketSpaceMember, { userEmail: email }, memberPatch)
+          .catch((err) =>
+            console.error(
+              '[propagateResourceProfileUpdate] TicketSpaceMember update failed:',
+              err,
+            ),
+          ),
       );
     }
 
@@ -763,22 +917,6 @@ export class ResourceService {
       working_hours: resource.working_hours,
       profile_pic: resource.profile_pic,
       calendar: resource.calendar,
-      // resource_pool: resource.resource_pool
-      //   ? {
-      //       id: resource.resource_pool.id,
-      //       resource_pool: resource.resource_pool.resource_pool,
-      //       pool_owner: resource.resource_pool.pool_owner
-      //         ? {
-      //             id: resource.resource_pool.pool_owner.id,
-      //             name:
-      //               resource.resource_pool.pool_owner.first_name +
-      //               ' ' +
-      //               resource.resource_pool.pool_owner.last_name,
-      //             email: resource.resource_pool.pool_owner.email,
-      //           }
-      //         : null,
-      //     }
-      //   : null,
       company: resource.company
         ? { id: resource.company.id, name: resource.company.company }
         : null,
@@ -817,11 +955,6 @@ export class ResourceService {
       relations: {
         company: true,
         division: true,
-        // resource_pool: {
-        //   pool_owner: true,
-        //   company: true,
-        //   division: true,
-        // },
         resourceSkills: {
           skill: true,
           skillLevel: true,
@@ -840,22 +973,6 @@ export class ResourceService {
       working_hours: resource.working_hours,
       profile_pic: resource.profile_pic,
       calendar: resource.calendar,
-      // resource_pool: resource.resource_pool
-      //   ? {
-      //       id: resource.resource_pool.id,
-      //       resource_pool: resource.resource_pool.resource_pool,
-      //       pool_owner: resource.resource_pool.pool_owner
-      //         ? {
-      //             id: resource.resource_pool.pool_owner.id,
-      //             name:
-      //               resource.resource_pool.pool_owner.first_name +
-      //               ' ' +
-      //               resource.resource_pool.pool_owner.last_name,
-      //             email: resource.resource_pool.pool_owner.email,
-      //           }
-      //         : null,
-      //     }
-      //   : null,
       company: resource.company
         ? { id: resource.company.id, name: resource.company.company }
         : null,
@@ -995,9 +1112,6 @@ export class ResourceService {
       relations: {
         company: true,
         division: true,
-        // resource_pool: {
-        //   pool_owner: true,
-        // },
         calendar: true,
         reportingPerson: true,
         resourceSkills: {
@@ -1034,23 +1148,6 @@ export class ResourceService {
             email: resource.reportingPerson.email,
           }
         : null,
-      // resource_pool: resource.resource_pool
-      //   ? {
-      //       id: resource.resource_pool.id,
-      //       resource_pool: resource.resource_pool.resource_pool,
-      //       pool_owner: resource.resource_pool.pool_owner
-      //         ? {
-      //             id: resource.resource_pool.pool_owner.id,
-      //             first_name:
-      //               resource.resource_pool.pool_owner.first_name +
-      //               ' ' +
-      //               resource.resource_pool.pool_owner.last_name,
-      //             last_name: resource.resource_pool.pool_owner.last_name,
-      //             email: resource.resource_pool.pool_owner.email,
-      //           }
-      //         : null,
-      //     }
-      //   : null,
       working_hours: resource.working_hours,
       calendar: resource.calendar,
       company: resource.company
@@ -1160,7 +1257,7 @@ export class ResourceService {
       this.entityManager.getRepository(ResourcePool);
 
     const resourceSkillRepository =
-      this.entityManager.getRepository(ResourceSkill); // Add this back
+      this.entityManager.getRepository(ResourceSkill);
 
     // 2. Concurrently check for BLOCKING relationships
     const [associatedPoolsCount] = await Promise.all([
@@ -1202,24 +1299,16 @@ export class ResourceService {
   }
 
   async getResourceActiveCounts(id: number, activeCompanyId?: number) {
-    // const where: any = { id };
-    // if (activeCompanyId && activeCompanyId !== 0) {
-    //   where.company = { id: activeCompanyId };
-    // }
-
     const resource = await this.entityManager.findOne(Resource, {
       where: {
         id,
         companyId: activeCompanyId,
       },
-      // relations: ['projectGroups'],
     });
 
     if (!resource) {
       throw new NotFoundException('Resource not found');
     }
-
-    // const projectCount = resource.projectGroups?.length || 0;
 
     const taskCount = await this.entityManager.count(Task, {
       where: {
@@ -1228,13 +1317,6 @@ export class ResourceService {
         statusBase: In([StatusBaseEnum.TOSTART, StatusBaseEnum.PROCESSING]),
       },
     });
-
-    // const user = await this.entityManager.findOne(User, {
-    //   where: {
-    //     email: ILike(resource.email.trim()),
-    //     companies: { id: activeCompanyId },
-    //   },
-    // });
 
     let ticketCount = 0;
     if (resource.email) {
@@ -1248,7 +1330,6 @@ export class ResourceService {
     }
 
     return {
-      // projectCount,
       taskCount,
       ticketCount,
     };
@@ -1332,7 +1413,7 @@ export class ResourceService {
     if (user.first_name) resource.first_name = user.first_name;
     if (user.last_name) resource.last_name = user.last_name;
     if (user.mobile_number) resource.mobile = user.mobile_number;
-    if (user.profile_picture) resource.profile_pic = user.profile_picture;
+    resource.profile_pic = user.profile_picture ?? (null as unknown as string);
     resource.updatedBy = authUser?.email ?? 'system';
 
     await this.entityManager.save(Resource, resource);

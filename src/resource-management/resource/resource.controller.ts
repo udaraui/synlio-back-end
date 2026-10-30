@@ -90,6 +90,17 @@ export class ResourceController {
     ) file: Express.Multer.File,
   ) {
     const activeCompanyId = req.activeCompany?.companyId;
+    const rawDto = createResourceDto as unknown as Record<string, unknown>;
+    if (
+      !file &&
+      (rawDto.profile_pic === 'null' ||
+        rawDto.profile_pic === null ||
+        rawDto.remove_profile_pic === 'true' ||
+        rawDto.remove_profile_pic === true)
+    ) {
+      rawDto.profile_pic = null;
+      rawDto.remove_profile_pic = true;
+    }
 
     return this.resourceService.createResource(
       createResourceDto,
@@ -117,6 +128,16 @@ export class ResourceController {
     ) file: Express.Multer.File,
   ) {
     const activeCompanyId = req.activeCompany?.companyId;
+    if (
+      !file &&
+      (body?.profile_pic === 'null' ||
+        body?.profile_pic === null ||
+        body?.remove_profile_pic === 'true' ||
+        body?.remove_profile_pic === true)
+    ) {
+      body.profile_pic = null;
+      body.remove_profile_pic = true;
+    }
 
     return await this.resourceService.updateResource(
       id,

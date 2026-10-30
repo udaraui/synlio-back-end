@@ -46,6 +46,13 @@ export class UserService {
     file: Express.Multer.File | undefined,
     activeCompanyId?: number,
   ): Promise<User> {
+    const rawDto = createUserDto as unknown as Record<string, unknown>;
+    const isProfilePicRemoved =
+      rawDto.profile_picture === null ||
+      rawDto.profile_picture === 'null' ||
+      rawDto.remove_profile_picture === 'true' ||
+      rawDto.remove_profile_picture === true;
+
     const savedUserResult = await this.entityManager.transaction(
       async (transactionalEntityManager) => {
         // Emails are treated case-insensitively: normalize before lookup and
@@ -94,6 +101,9 @@ export class UserService {
           const imageUrl = await uploadToAzure(file, savedUser.id as number);
           savedUser.profile_picture = imageUrl;
           savedUser = await transactionalEntityManager.save(savedUser);
+        } else if (isProfilePicRemoved) {
+          savedUser.profile_picture = null as unknown as string;
+          savedUser = await transactionalEntityManager.save(savedUser);
         }
 
         // Handle Companies
@@ -107,7 +117,6 @@ export class UserService {
         if (Array.isArray(newCompanyIds)) {
           const existingCompanyIds =
             savedUser.companies?.map((c) => c.id) || [];
-
 
           if (isExistingUser) {
             const isAlreadyInCompany = newCompanyIds.some((id) =>
@@ -206,23 +215,6 @@ export class UserService {
             );
 
             if (!existingResource) {
-              const userDivision = savedUser.divisions?.find(
-                (d) =>
-                  // This is a bit tricky if divisions aren't tied to companies in the join table
-                  // but let's assume we take the first division selected in the DTO if it belongs to the company
-                  // or just the first one for now as a fallback.
-                  true,
-              );
-
-              // Find default calendar for the company
-              // const defaultCalendar = await transactionalEntityManager.findOne(
-              //   Calendar,
-              //   {
-              //     where: { company: { id: targetCompanyId } },
-              //     order: { id: 'ASC' },
-              //   },
-              // );
-
               const resource = new Resource();
               resource.first_name = savedUser.first_name;
               resource.last_name = savedUser.last_name;
@@ -238,9 +230,6 @@ export class UserService {
               if (createUserDto.divisionIds?.[0]) {
                 resource.divisionId = createUserDto.divisionIds[0];
               }
-              // if (defaultCalendar) {
-              //   resource.calendar = defaultCalendar;
-              // }
               if (savedUser.profile_picture) {
                 resource.profile_pic = savedUser.profile_picture;
               }
@@ -275,6 +264,28 @@ export class UserService {
       console.error('Error updating cache for new user:', error);
     }
 
+    const profilePicChanged = Boolean(file) || isProfilePicRemoved;
+    const nextProfilePicUrl: string | null | undefined = file
+      ? savedUserResult.profile_picture
+      : isProfilePicRemoved
+        ? null
+        : undefined;
+
+    if (profilePicChanged) {
+      setImmediate(() => {
+        void this.propagateUserProfileUpdate(savedUserResult.email, {
+          profilePicUrl: nextProfilePicUrl,
+          firstName: savedUserResult.first_name,
+          lastName: savedUserResult.last_name,
+        }).catch((err) =>
+          console.error(
+            '[UserService] Background propagateUserProfileUpdate on create failed:',
+            err,
+          ),
+        );
+      });
+    }
+
     return savedUserResult;
   }
 
@@ -290,12 +301,22 @@ export class UserService {
     });
 
     if (!existingUser) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
 
-    // Update basic fields
-    existingUser.first_name = userData.first_name;
-    existingUser.last_name = userData.last_name;
+    const isProfilePicRemoved =
+      userData.profile_picture === null ||
+      userData.profile_picture === 'null' ||
+      userData.remove_profile_picture === 'true' ||
+      userData.remove_profile_picture === true;
+
+    // Update basic fields when provided (supports both standalone profile-picture removal and full updates)
+    if (userData.first_name !== undefined) {
+      existingUser.first_name = userData.first_name;
+    }
+    if (userData.last_name !== undefined) {
+      existingUser.last_name = userData.last_name;
+    }
     if (userData.email) {
       const normalizedEmail = normalizeEmail(userData.email);
       // Email is immutable after creation — reject any attempt to change it.
@@ -303,12 +324,22 @@ export class UserService {
         throw new BadRequestException('Email cannot be changed after creation.');
       }
     }
-    existingUser.isActive = userData.isActive;
-    existingUser.mobile_number = userData.phone_number;
+    if (userData.isActive !== undefined) {
+      existingUser.isActive = userData.isActive;
+    }
+    if (userData.phone_number !== undefined) {
+      existingUser.mobile_number = userData.phone_number;
+    } else if (userData.mobile_number !== undefined) {
+      existingUser.mobile_number = userData.mobile_number;
+    }
+
     if (file) {
       const imageUrl = await uploadToAzure(file, existingUser.id as number);
       existingUser.profile_picture = imageUrl;
+    } else if (isProfilePicRemoved) {
+      existingUser.profile_picture = null as unknown as string;
     }
+
     existingUser.updatedBy = authUser.email;
 
     // Only update password if provided
@@ -316,13 +347,6 @@ export class UserService {
       const saltRounds = 10;
       existingUser.password = await bcrypt.hash(userData.password, saltRounds);
     }
-
-    // Update companies
-    // if (Array.isArray(userData.companyIds)) {
-    //   existingUser.companies = userData.companyIds.map(
-    //     (id: number) => ({ id }) as Company,
-    //   );
-    // }
 
     // Update divisions
     if (Array.isArray(userData.divisionIds)) {
@@ -400,31 +424,10 @@ export class UserService {
       existingUser.userCompanyRoles = allUserRoles;
     }
 
-    // Save the updated user
+    // 1. Primary DB update: save the updated user and load the response payload FIRST
     const savedUser = await this.entityManager.save(User, existingUser);
 
-    await this.authorizationService.updateUserCompanyPrivilegesIntoCache(
-      savedUser.id as number,
-    );
-    await this.syncUserCompaniesCache(savedUser.id as number);
-
-    // Fire-and-forget: propagate name and/or profile pic to linked Resource,
-    // Tasks and Tickets. Runs after the response is already on its way.
-    this.propagateUserProfileUpdate(
-      existingUser.email,
-      {
-        ...(file && existingUser.profile_picture
-          ? { profilePicUrl: existingUser.profile_picture }
-          : {}),
-        firstName: existingUser.first_name,
-        lastName: existingUser.last_name,
-      },
-    ).catch((err) =>
-      console.error('[UserService] propagateUserProfileUpdate failed:', err),
-    );
-
-    // Return the user with all relations loaded
-    return await this.entityManager.findOne(User, {
+    const updatedUserResponse = await this.entityManager.findOne(User, {
       where: { id: savedUser.id },
       relations: [
         'companies',
@@ -434,6 +437,43 @@ export class UserService {
         'userCompanyRoles.company',
       ],
     });
+
+    const profilePicChanged = Boolean(file) || isProfilePicRemoved;
+    const nextProfilePicUrl: string | null | undefined = file
+      ? existingUser.profile_picture
+      : isProfilePicRemoved
+        ? null
+        : undefined;
+
+    // 2. Decoupled background execution: schedule Redis cache updates and heavy
+    // cross-entity synchronization via `setImmediate` so the HTTP response is
+    // returned to the client FIRST before background sync jobs run.
+    setImmediate(() => {
+      void this.authorizationService
+        .updateUserCompanyPrivilegesIntoCache(savedUser.id as number)
+        .catch((err) =>
+          console.error(
+            '[UserService] Failed to update user privileges cache:',
+            err,
+          ),
+        );
+      void this.syncUserCompaniesCache(savedUser.id as number).catch((err) =>
+        console.error(
+          '[UserService] Failed to sync user companies cache:',
+          err,
+        ),
+      );
+      void this.propagateUserProfileUpdate(existingUser.email, {
+        ...(profilePicChanged ? { profilePicUrl: nextProfilePicUrl } : {}),
+        firstName: existingUser.first_name,
+        lastName: existingUser.last_name,
+      }).catch((err) =>
+        console.error('[UserService] propagateUserProfileUpdate failed:', err),
+      );
+    });
+
+    // Return the user with all relations loaded immediately
+    return updatedUserResponse;
   }
 
   /**
@@ -441,23 +481,37 @@ export class UserService {
    *   1. All Resource rows with the same email  (profile_pic, first_name, last_name)
    *   2. Every Task where those resources are the assignee  (assigneeProfilePicUrl, assigneeName)
    *   3. Every Ticket where those resources are the assignee  (assigneeProfilePicUrl, assigneeName)
+   *   4. Every TicketSpaceMember with the same email  (userProfilePicture)
    *
-   * Each field is optional — only supplied fields are written.
-   * Fire-and-forget: never delays the HTTP response.
+   * Each field is optional — only supplied fields (including `null` for removal) are written.
+   * Runs strictly in the background after the HTTP response has been sent.
    */
   private async propagateUserProfileUpdate(
     email: string,
-    opts: { profilePicUrl?: string; firstName?: string; lastName?: string },
+    opts: {
+      profilePicUrl?: string | null;
+      firstName?: string;
+      lastName?: string;
+    },
   ): Promise<void> {
     const { profilePicUrl, firstName, lastName } = opts;
 
     // Build partial update payloads — only include fields that actually changed
-    const resourcePatch: Partial<{ profile_pic: string; first_name: string; last_name: string }> = {};
-    const assigneePatch: Partial<{ assigneeProfilePicUrl: string; assigneeName: string }> = {};
+    const resourcePatch: Partial<{
+      profile_pic: string;
+      first_name: string;
+      last_name: string;
+    }> = {};
+    const assigneePatch: Partial<{
+      assigneeProfilePicUrl: string;
+      assigneeName: string;
+    }> = {};
+    const memberPatch: Partial<{ userProfilePicture: string }> = {};
 
-    if (profilePicUrl) {
-      resourcePatch.profile_pic = profilePicUrl;
-      assigneePatch.assigneeProfilePicUrl = profilePicUrl;
+    if (profilePicUrl !== undefined) {
+      resourcePatch.profile_pic = profilePicUrl as unknown as string;
+      assigneePatch.assigneeProfilePicUrl = profilePicUrl as unknown as string;
+      memberPatch.userProfilePicture = profilePicUrl as unknown as string;
     }
     if (firstName !== undefined) resourcePatch.first_name = firstName;
     if (lastName !== undefined) resourcePatch.last_name = lastName;
@@ -472,33 +526,76 @@ export class UserService {
     });
     const resourceIds = resources.map((r) => r.id as number).filter(Boolean);
 
-    const jobs: Promise<any>[] = [];
+    const jobs: Promise<unknown>[] = [];
 
-    if (Object.keys(resourcePatch).length > 0) {
+    if (Object.keys(resourcePatch).length > 0 && email) {
       jobs.push(
         this.entityManager
           .update(Resource, { email }, resourcePatch)
-          .catch((err) => console.error('[propagateUserProfileUpdate] Resource update failed:', err)),
+          .catch((err) =>
+            console.error(
+              '[propagateUserProfileUpdate] Resource update failed:',
+              err,
+            ),
+          ),
       );
     }
 
-    if (resourceIds.length > 0 && Object.keys(assigneePatch).length > 0) {
+    if (Object.keys(assigneePatch).length > 0) {
+      if (resourceIds.length > 0) {
+        jobs.push(
+          this.entityManager
+            .createQueryBuilder()
+            .update(Task)
+            .set(assigneePatch)
+            .where('assigneeId IN (:...ids)', { ids: resourceIds })
+            .execute()
+            .catch((err) =>
+              console.error(
+                '[propagateUserProfileUpdate] Task update failed:',
+                err,
+              ),
+            ),
+
+          this.entityManager
+            .createQueryBuilder()
+            .update(Ticket)
+            .set(assigneePatch)
+            .where('assigneeId IN (:...ids)', { ids: resourceIds })
+            .execute()
+            .catch((err) =>
+              console.error(
+                '[propagateUserProfileUpdate] Ticket (by assigneeId) update failed:',
+                err,
+              ),
+            ),
+        );
+      }
+
+      if (email) {
+        jobs.push(
+          this.entityManager
+            .update(Ticket, { assigneeEmail: email }, assigneePatch)
+            .catch((err) =>
+              console.error(
+                '[propagateUserProfileUpdate] Ticket (by assigneeEmail) update failed:',
+                err,
+              ),
+            ),
+        );
+      }
+    }
+
+    if (Object.keys(memberPatch).length > 0 && email) {
       jobs.push(
         this.entityManager
-          .createQueryBuilder()
-          .update(Task)
-          .set(assigneePatch)
-          .where('assigneeId IN (:...ids)', { ids: resourceIds })
-          .execute()
-          .catch((err) => console.error('[propagateUserProfileUpdate] Task update failed:', err)),
-
-        this.entityManager
-          .createQueryBuilder()
-          .update(Ticket)
-          .set(assigneePatch)
-          .where('assigneeId IN (:...ids)', { ids: resourceIds })
-          .execute()
-          .catch((err) => console.error('[propagateUserProfileUpdate] Ticket update failed:', err)),
+          .update(TicketSpaceMember, { userEmail: email }, memberPatch)
+          .catch((err) =>
+            console.error(
+              '[propagateUserProfileUpdate] TicketSpaceMember update failed:',
+              err,
+            ),
+          ),
       );
     }
 
@@ -575,12 +672,7 @@ export class UserService {
     const user = await this.entityManager.findOne(User, {
       where: { id: id },
       relations: [
-        // 'companies',
         'divisions',
-        // 'userCompanyRoles',
-        // 'userCompanyRoles.role',
-        // 'userCompanyRoles.company',
-        // 'userCompanyRoles.role.privileges',
       ],
       select: {
         id: true,
