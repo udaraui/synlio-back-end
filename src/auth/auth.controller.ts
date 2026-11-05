@@ -73,10 +73,10 @@ export class AuthController {
   @Public()
   @Post('google')
   async googleLogin(
-    @Body() body: { access_token: string },
+    @Body() body: { access_token: string; action?: 'login' | 'register' },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.googleLogin(body?.access_token);
+    const result = await this.authService.googleLogin(body?.access_token, body?.action);
 
     res.cookie('refreshToken', result.refresh_token, {
       httpOnly: true,

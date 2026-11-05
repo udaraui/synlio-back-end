@@ -168,7 +168,7 @@ export class AuthService {
    * Creates the user on first sign-in, then issues the standard Synlio JWTs
    * via `login()` so the response matches the email/password login.
    */
-  async googleLogin(access_token: string) {
+  async googleLogin(access_token: string, action?: 'login' | 'register') {
     if (!access_token) {
       throw new BadRequestException('Google access token is required');
     }
@@ -217,6 +217,13 @@ export class AuthService {
         user = await this.entityManager.save(User, user);
       }
     } else {
+      // Prevent automatic account creation if logging in from the login page
+      if (action === 'login') {
+        throw new NotFoundException(
+          'මෙම විද්‍යුත් තැපෑල (Email) සඳහා ගිණුමක් නොමැත. කරුණාකර ලියාපදිංචි වන්න.',
+        );
+      }
+
       // 4. First-time Google sign-in: create the user.
       const randomPassword = crypto.randomBytes(32).toString('hex');
       const newUser = this.entityManager.create(User, {
