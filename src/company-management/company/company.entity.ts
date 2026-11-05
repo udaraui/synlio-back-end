@@ -1,4 +1,4 @@
-import { Column, Entity, Index, ManyToMany, OneToMany } from 'typeorm';
+import { Column, Entity, Index, ManyToMany, OneToMany, OneToOne } from 'typeorm';
 import { Division } from '../division/division.entity';
 import { ActiveStatus } from '../../common/enum/status.enum';
 import { BaseEntity } from '../../common/base/base.entity';
@@ -9,6 +9,7 @@ import { ResourcePool } from '../../resource-management/resource-pool/resource-p
 import { UserCompanyRole } from '../../user-management/user/user-company-role.entity';
 import { Role } from '../../user-management/role/role.entity';
 import { MeetingProvider } from '../../meetings-integration/entities/meeting-integration-connection.entity';
+import { CompanyCrm } from './company-crm.entity';
 
 @Entity()
 export class Company extends BaseEntity {
@@ -60,10 +61,12 @@ export class Company extends BaseEntity {
   @OneToMany(() => ResourcePool, (rp) => rp.company)
   resourcepools: ResourcePool[];
 
-
   @OneToMany(() => UserCompanyRole, (ucr) => ucr.user)
   userCompanyRoles: UserCompanyRole[];
 
   @OneToMany(() => Role, (role) => role.company)
   roles: Role[];
+
+  @OneToOne(() => CompanyCrm, (crm) => crm.company)
+  crm: CompanyCrm;
 }

@@ -5,6 +5,7 @@ import { User } from '../user-management/user/user.entity';
 import { Role } from '../user-management/role/role.entity';
 import { Privilege } from '../user-management/privilege/privilege.entity';
 import { Company } from '../company-management/company/company.entity';
+import { CompanyCrm } from '../company-management/company/company-crm.entity';
 import { Division } from '../company-management/division/division.entity';
 import { UserCompanyRole } from '../user-management/user/user-company-role.entity';
 import { UserCompanyView } from '../user-management/user/user-company-view/user-company.entity';
@@ -95,6 +96,7 @@ import { AiAuditLog } from 'src/ai/ai-audit-log.entity';
           Role,
           Privilege,
           Company,
+          CompanyCrm,
           Division,
           UserCompanyRole,
           UserCompanyView,

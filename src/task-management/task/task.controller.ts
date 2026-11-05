@@ -20,11 +20,18 @@ import { AuthorizationPermissions } from '../../authorization/decorator/authoriz
 import { AuthorizationGuard } from '../../authorization/decorator/authorization.guard';
 import { TaskVisibilityGuard } from '../guards/task-visibility.guard';
 import { QueryParam } from '../../common/common-db-operation/common-db-operation-query-param.dto';
-import { TmTaskService } from './task.service';
+import { AuthenticatedTaskUser, TmTaskService } from './task.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { CommonDbOperationService } from '../../common/common-db-operation/common-db-operation.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { uploadTaskAttachmentToAzure } from '../../common/azure/azure-image-upload';
+
+interface AuthenticatedTaskRequest {
+  user?: AuthenticatedTaskUser;
+  activeCompany?: {
+    companyId?: number;
+  };
+}
 
 @Controller('task-management/task')
 @UseGuards(JwtAuthGuard, AuthorizationGuard, TaskVisibilityGuard)
@@ -38,25 +45,10 @@ export class TmTaskController {
   @Post('/search')
   async search(
     @Body() item: QueryParam,
-    @Request() req: any,
+    @Request() req: AuthenticatedTaskRequest,
   ): Promise<{ total: number; data: object[] }> {
     const activeCompanyId = req.activeCompany?.companyId;
-
-    if (activeCompanyId && activeCompanyId !== 0) {
-      if (!item.filters) item.filters = [];
-      item.filters.push({
-        field: 'companyId',
-        matchMode: 'equals',
-        value: activeCompanyId,
-      });
-    }
-
-    // console.time('Task Search Query Execution');
-    const result = await this.commonDbOperationService.search('tm_task', {
-      ...item,
-    });
-    // console.timeEnd('Task Search Query Execution');
-    return result;
+    return this.taskService.searchTasks(item, req.user, activeCompanyId);
   }
 
   @AuthorizationPermissions('54')
