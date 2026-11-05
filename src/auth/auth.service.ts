@@ -220,7 +220,7 @@ export class AuthService {
       // Prevent automatic account creation if logging in from the login page
       if (action === 'login') {
         throw new NotFoundException(
-          'මෙම විද්‍යුත් තැපෑල (Email) සඳහා ගිණුමක් නොමැත. කරුණාකර ලියාපදිංචි වන්න.',
+          'No account exists for this email address. Please register first.',
         );
       }
 
