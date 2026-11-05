@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { jwtConstants } from './constants';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 import * as crypto from 'crypto';
@@ -22,9 +22,8 @@ import {
   normalizeEmail,
 } from '../common/email-builder';
 import { EmailClient } from '@azure/communication-email';
-import { InjectEntityManager } from '@nestjs/typeorm';
-import { EntityManager, In } from 'typeorm';
 import { Company } from '../company-management/company/company.entity';
+import { CompanyCrm } from '../company-management/company/company-crm.entity';
 import { Role } from '../user-management/role/role.entity';
 import { Privilege, PrivilegeLevel } from '../user-management/privilege/privilege.entity';
 import { UserCompanyRole } from '../user-management/user/user-company-role.entity';
@@ -37,6 +36,8 @@ import { uploadToAzureCompanyLogo } from '../common/azure/azure-image-upload';
 import { Resource } from '../resource-management/resource/resource.entity';
 import { UserRegistrationSource } from 'src/common/enum/user-registration-source.enum';
 import { generateUniqueCompanyCode } from '../common/utils/company-code.util';
+import { CompleteRegistrationDto, CompanyCrmDto } from './dto/onboarding.dto';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -56,7 +57,20 @@ export class AuthService {
     private readonly authorizationService: AuthorizationService,
   ) { }
 
-  async validateUser(email: string, pass: string): Promise<any> {
+  private parseCrmPayload(crmInput?: CompanyCrmDto | string): CompanyCrmDto | null {
+    if (!crmInput) return null;
+    if (typeof crmInput === 'string') {
+      try {
+        const parsed = JSON.parse(crmInput) as CompanyCrmDto;
+        return typeof parsed === 'object' && parsed !== null ? parsed : null;
+      } catch {
+        throw new BadRequestException('Invalid CRM payload format');
+      }
+    }
+    return crmInput;
+  }
+
+  async validateUser(email: string, pass: string): Promise<Omit<User, 'password'> | null> {
     const user = await this.usersService.findOne(email);
 
     if (user && (await bcrypt.compare(pass, user.password))) {
@@ -71,9 +85,12 @@ export class AuthService {
     return { exists };
   }
 
-  private async getPrivilegesWithFallback(userId: number): Promise<any[]> {
+  private async getPrivilegesWithFallback(
+    userId: number,
+  ): Promise<{ companyId: number; privilegeIds: number[] }[]> {
     const cachedRaw = await this.redisService.get(`user_privileges:${userId}`);
-    let privileges = cachedRaw ? JSON.parse(cachedRaw) : null;
+    let privileges: { companyId: number; privilegeIds: number[] }[] | null =
+      cachedRaw ? JSON.parse(cachedRaw) : null;
 
     if (!privileges || privileges.length === 0) {
       const dbPrivileges = await this.userPrivilegeViewRepository.find({
@@ -100,7 +117,13 @@ export class AuthService {
     return privileges;
   }
 
-  async login(user: any) {
+  async login(user: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    mobile_number?: string;
+  }) {
     const JWT_secret = process.env.JWT_SECRET || '';
     const JWT_refresh_secret = process.env.JWT_REFRESH_SECRET || '';
 
@@ -108,8 +131,6 @@ export class AuthService {
       throw new Error('JWT_SECRET or JWT_REFRESH_SECRET is not set');
     }
 
-    // const cachedRaw = await this.redisService.get(`user_privileges:${user.id}`);
-    // const privileges = cachedRaw ? JSON.parse(cachedRaw) : [];
     const privileges = await this.getPrivilegesWithFallback(user.id);
 
     const payload = {
@@ -147,7 +168,7 @@ export class AuthService {
    * Creates the user on first sign-in, then issues the standard Synlio JWTs
    * via `login()` so the response matches the email/password login.
    */
-  async googleLogin(access_token: string) {
+  async googleLogin(access_token: string, action?: 'login' | 'register') {
     if (!access_token) {
       throw new BadRequestException('Google access token is required');
     }
@@ -176,7 +197,6 @@ export class AuthService {
     if (!email) {
       throw new UnauthorizedException('Google account has no email address');
     }
-    // Never link/create accounts on an unverified email
     if (email_verified === false) {
       throw new UnauthorizedException('Google email address is not verified');
     }
@@ -197,8 +217,14 @@ export class AuthService {
         user = await this.entityManager.save(User, user);
       }
     } else {
+      // Prevent automatic account creation if logging in from the login page
+      if (action === 'login') {
+        throw new NotFoundException(
+          'No account exists for this email address. Please register first.',
+        );
+      }
+
       // 4. First-time Google sign-in: create the user.
-      // `password` is NOT NULL, so store a hash of a random, unknown secret.
       const randomPassword = crypto.randomBytes(32).toString('hex');
       const newUser = this.entityManager.create(User, {
         email: normalizedEmail,
@@ -213,8 +239,13 @@ export class AuthService {
       user = await this.entityManager.save(User, newUser);
     }
 
-    // 5 & 6. Issue the standard JWTs (and store the refresh token)
-    return this.login(user);
+    return this.login({
+      id: user.id as number,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      mobile_number: user.mobile_number,
+    });
   }
 
   async updateRefreshToken(userId: number, refreshToken: string | undefined) {
@@ -242,9 +273,7 @@ export class AuthService {
       if (!refreshTokenMatches) {
         throw new ForbiddenException('Access Denied');
       }
-      // const cachedRaw = await this.redisService.get(`user_privileges:${user.id}`);
-      // const privileges = cachedRaw ? JSON.parse(cachedRaw) : [];
-      const privileges = await this.getPrivilegesWithFallback(user.id);
+      const privileges = await this.getPrivilegesWithFallback(user.id as number);
 
       const newPayload = {
         userId: user.id,
@@ -260,7 +289,7 @@ export class AuthService {
       });
 
       return { access_token: newAccessToken };
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -276,11 +305,6 @@ export class AuthService {
     return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
   }
 
-  /**
-   * HMAC-SHA256 of `${email}:${code}` with a server secret.
-   * - Email binding keeps the stored hash unique per row.
-   * - The secret prevents offline brute force of the 10^6 code space.
-   */
   private hashVerificationCode(email: string, code: string): string {
     const secret = process.env.OTP_HASH_SECRET || process.env.JWT_SECRET;
     if (!secret) {
@@ -306,16 +330,12 @@ export class AuthService {
       throw new BadRequestException(invalid);
     }
 
-    if (
-      !pending.expiry ||
-      new Date() > pending.expiry
-    ) {
+    if (!pending.expiry || new Date() > pending.expiry) {
       throw new BadRequestException(
         'Verification code has expired. Please register again to get a new code.',
       );
     }
 
-    // Consume an attempt BEFORE comparing so parallel guesses can't exceed the cap
     const max = AuthService.MAX_VERIFICATION_ATTEMPTS;
     const attempts = await this.usersService.consumeVerificationAttempt(
       pending.id,
@@ -341,7 +361,6 @@ export class AuthService {
       );
     }
 
-    // Delete the temporary row since verification succeeded
     await this.usersService.deletePendingRegistration(pending.id);
 
     const payload = { email: pending.email, isRegistration: true };
@@ -355,9 +374,7 @@ export class AuthService {
 
   // ─── Self-Registration ─────────────────────────────────────────────────── //
 
-  async register(
-    email: string,
-  ): Promise<{ message: string }> {
+  async register(email: string): Promise<{ message: string }> {
     const rawCode = this.generateVerificationCode();
     console.log(`[DEV ONLY] OTP Code for ${email}: ${rawCode}`);
     const hashedCode = this.hashVerificationCode(email, rawCode);
@@ -371,9 +388,11 @@ export class AuthService {
         hashedCode,
         expiry,
       );
-    } catch (err: any) {
-      if (err?.message === 'EMAIL_ALREADY_EXISTS') {
-        throw new BadRequestException('Email already exists. Please log in or use forgot password if you have forgotten your password.');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === 'EMAIL_ALREADY_EXISTS') {
+        throw new BadRequestException(
+          'Email already exists. Please log in or use forgot password if you have forgotten your password.',
+        );
       }
       throw err;
     }
@@ -401,27 +420,21 @@ export class AuthService {
         'If an account with that email exists, a password reset link has been sent',
     };
 
-    // Find the active user — return generic response even if not found
-    // (prevents email enumeration attacks)
     const user = await this.usersService.findOneByEmailInsensitive(email);
     if (!user) {
       throw new NotFoundException(`User with email ${email} not found.`);
     }
 
-    // Generate a cryptographically secure random token (raw, sent in email link)
     const rawToken = crypto.randomBytes(32).toString('hex');
 
-    // Hash with SHA-256 for DB storage — allows direct lookup without bcrypt
     const hashedToken = crypto
       .createHash('sha256')
       .update(rawToken)
       .digest('hex');
 
-    // Store hash + 1-hour expiry on the user record
     const expiry = new Date(Date.now() + 60 * 60 * 1000);
     await this.usersService.setPasswordResetToken(user.id!, hashedToken, expiry);
 
-    // Build reset link and dispatch the email (remove trailing slash if present)
     const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const frontendUrl = rawFrontendUrl.replace(/\/+$/, '');
     const resetLink = `${frontendUrl}/reset-password?token=${rawToken}`;
@@ -433,7 +446,6 @@ export class AuthService {
         `Failed to send password reset email to ${user.email}`,
         err instanceof Error ? err.stack : String(err),
       );
-      // Do not expose send failures — still return generic success
     }
 
     return genericResponse;
@@ -443,7 +455,6 @@ export class AuthService {
     token: string,
     newPassword: string,
   ): Promise<{ message: string }> {
-    // Hash the incoming raw token to match the stored SHA-256 hash
     const hashedToken = crypto
       .createHash('sha256')
       .update(token)
@@ -545,15 +556,15 @@ export class AuthService {
   // ─── Complete Registration ────────────────────────────────────────── //
 
   async completeRegistration(
-    dto: any,
+    dto: CompleteRegistrationDto,
     userProfilePicture?: Express.Multer.File,
-    companyProfilePicture?: Express.Multer.File
-  ): Promise<any> {
+    companyProfilePicture?: Express.Multer.File,
+  ) {
     // 1. Verify token
-    let payload;
+    let payload: { isRegistration?: boolean; email?: string };
     try {
       payload = this.jwtService.verify(dto.registration_token);
-    } catch (e) {
+    } catch {
       throw new UnauthorizedException('Invalid or expired registration token');
     }
 
@@ -573,24 +584,25 @@ export class AuthService {
     };
 
     const user = await this.usersService.createUser(
-      createUserDto as any,
-      { email: dto.email }, // authUser stub
+      createUserDto as never,
+      { email: dto.email },
       userProfilePicture,
-      undefined
+      undefined,
     );
 
-    // 3. Create Company (company code is auto-generated from the company name)
+    // 3. Create Company (and optional CompanyCrm inside entityManager.transaction)
     const companyRes = await this.onboardingCreateCompany(
       dto.company_name,
-      { email: user.email, userId: user.id },
+      { email: user.email, userId: user.id as number },
       companyProfilePicture,
       dto.company_address,
+      dto.crm,
     );
 
     // 4. Setup Admin Role
     const loginResult = await this.onboardingSetupAdminRole(
       companyRes.companyId,
-      { email: user.email, userId: user.id }
+      { email: user.email, userId: user.id as number },
     );
 
     return loginResult;
@@ -599,57 +611,84 @@ export class AuthService {
   // ─── Onboarding ───────────────────────────────────────────────── //
 
   /**
-   * Step 1 — Create company for a self-registered user.
+   * Step 1 — Create company (and optional CRM record) for a self-registered user
+   * inside an `entityManager.transaction`.
    * `is_self_registered_company` is ALWAYS set to `true` here; the client cannot override it.
    */
   async onboardingCreateCompany(
     company_name: string,
-    authUser: any,
+    authUser: { email: string; userId: number },
     companyProfilePicture?: Express.Multer.File,
     companyAddress?: string,
+    crmInput?: CompanyCrmDto | string,
   ): Promise<{ companyId: number; message: string }> {
-    // Create the company with a server-generated unique 5-letter code and
-    // is_self_registered_company always true. Retry if another company grabs the
-    // same code concurrently (unique_violation).
-    let saved: Company | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const company = this.entityManager.create(Company, {
-        company: company_name,
-        company_code: await generateUniqueCompanyCode(this.entityManager, company_name),
-        is_self_registered_company: true, // server-enforced
-        ...(companyAddress?.trim() ? { address: companyAddress.trim() } : {}),
-        isActive: ActiveStatus.ACTIVE,
-        createdBy: authUser.email,
-      });
-      try {
-        saved = await this.entityManager.save(Company, company);
-        break;
-      } catch (error: any) {
-        if (error?.code !== '23505' || attempt === 2) throw error;
-      }
-    }
-    if (!saved) {
-      throw new BadRequestException('Unable to generate a unique company code');
-    }
+    const parsedCrm = this.parseCrmPayload(crmInput);
 
-    // 3. Upload Company Profile Picture
-    if (companyProfilePicture) {
-      const companyImageUrl = await uploadToAzureCompanyLogo(companyProfilePicture, saved.id as number);
-      saved.logo = companyImageUrl;
-      saved = await this.entityManager.save(Company, saved);
+    let savedCompany = await this.entityManager.transaction(
+      async (transactionalEntityManager) => {
+        let createdCompany: Company | undefined;
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const company = transactionalEntityManager.create(Company, {
+            company: company_name,
+            company_code: await generateUniqueCompanyCode(
+              transactionalEntityManager,
+              company_name,
+            ),
+            is_self_registered_company: true,
+            ...(companyAddress?.trim() ? { address: companyAddress.trim() } : {}),
+            isActive: ActiveStatus.ACTIVE,
+            createdBy: authUser.email,
+          });
+          try {
+            createdCompany = await transactionalEntityManager.save(Company, company);
+            break;
+          } catch (error: unknown) {
+            const pgError = error as { code?: string };
+            if (pgError?.code !== '23505' || attempt === 2) throw error;
+          }
+        }
+
+        if (!createdCompany || !createdCompany.id) {
+          throw new BadRequestException('Unable to generate a unique company code');
+        }
+
+        // Check for the `crm` object in the payload; if present, create and save `CompanyCrm`
+        if (parsedCrm) {
+          const companyCrm = transactionalEntityManager.create(CompanyCrm, {
+            companyId: createdCompany.id,
+            employee_count: parsedCrm.employee_count?.trim() || null,
+            manage_type: parsedCrm.manage_type?.trim() || null,
+            optional_data: parsedCrm.optional_data?.trim() || null,
+          });
+          await transactionalEntityManager.save(CompanyCrm, companyCrm);
+        }
+
+        // Link the user to this company
+        await transactionalEntityManager
+          .createQueryBuilder()
+          .relation(User, 'companies')
+          .of(authUser.userId)
+          .add(createdCompany.id);
+
+        // Set as default company
+        await transactionalEntityManager.update(User, authUser.userId, {
+          defaultCompanyId: createdCompany.id,
+        });
+
+        return createdCompany;
+      },
+    );
+
+    // Upload Company Profile Picture if provided
+    if (companyProfilePicture && savedCompany.id) {
+      const companyImageUrl = await uploadToAzureCompanyLogo(
+        companyProfilePicture,
+        savedCompany.id,
+      );
+      savedCompany.logo = companyImageUrl;
+      savedCompany = await this.entityManager.save(Company, savedCompany);
     }
-
-    // Link the user to this company
-    await this.entityManager
-      .createQueryBuilder()
-      .relation(User, 'companies')
-      .of(authUser.userId)
-      .add(saved.id);
-
-    // Set as default company
-    await this.entityManager.update(User, authUser.userId, {
-      defaultCompanyId: saved.id as number,
-    });
 
     // Sync company cache for the user
     try {
@@ -662,7 +701,7 @@ export class AuthService {
     }
 
     return {
-      companyId: saved.id as number,
+      companyId: savedCompany.id as number,
       message: 'Company created successfully',
     };
   }
@@ -672,9 +711,8 @@ export class AuthService {
    */
   async onboardingSetupAdminRole(
     companyId: number,
-    authUser: any,
-  ): Promise<{ message: string; access_token: string; refresh_token: string; return_user: any }> {
-    // Verify company exists and belongs to this user (was just created by them)
+    authUser: { email: string; userId: number },
+  ) {
     const company = await this.entityManager.findOne(Company, {
       where: { id: companyId },
     });
@@ -682,7 +720,6 @@ export class AuthService {
       throw new NotFoundException(`Company with id ${companyId} not found`);
     }
 
-    // Fetch all DATA and CONFIG level privileges
     const privileges = await this.entityManager.find(Privilege, {
       where: [
         { level_type: PrivilegeLevel.DATA },
@@ -690,7 +727,6 @@ export class AuthService {
       ],
     });
 
-    // Create the Admin role for this company
     const adminRole = this.entityManager.create(Role, {
       role: 'Admin',
       companyId,
@@ -702,7 +738,6 @@ export class AuthService {
 
     const savedRole = await this.entityManager.save(Role, adminRole);
 
-    // Assign the Admin role to the requesting user for this company
     const userCompanyRole = this.entityManager.create(UserCompanyRole, {
       userId: authUser.userId,
       companyId,
@@ -710,7 +745,6 @@ export class AuthService {
     });
     await this.entityManager.save(UserCompanyRole, userCompanyRole);
 
-    // Create a default Division for this company
     const defaultDivision = this.entityManager.create(Division, {
       division: 'Default',
       division_code: 'DEFAULT',
@@ -720,17 +754,14 @@ export class AuthService {
     });
     const savedDivision = await this.entityManager.save(Division, defaultDivision);
 
-    // Assign the default division to the requesting user
-    // Since division.users is a ManyToMany relationship in TypeORM, we can use QueryBuilder relation
     await this.entityManager
       .createQueryBuilder()
       .relation(Division, 'users')
       .of(savedDivision.id)
       .add(authUser.userId);
 
-    // Create a corresponding Resource record for the authenticated user
     const fullUser = await this.entityManager.findOne(User, {
-      where: { id: authUser.userId }
+      where: { id: authUser.userId },
     });
 
     if (fullUser) {
@@ -750,7 +781,6 @@ export class AuthService {
       await this.entityManager.save(Resource, resource);
     }
 
-    // Refresh auth caches
     try {
       await this.authorizationService.updateUserCompanyPrivilegesIntoCache(authUser.userId);
       const userCompanies = await this.entityManager.find(UserCompanyView, {
@@ -761,13 +791,21 @@ export class AuthService {
       this.logger.warn(`Cache refresh failed after onboarding admin role setup: ${err}`);
     }
 
-    // Generate new tokens that include the new privileges
     const user = await this.usersService.getOnlyUserById(authUser.userId);
-    const loginResult = await this.login(user);
+    if (!user || !user.id) {
+      throw new NotFoundException(`User with id ${authUser.userId} not found`);
+    }
+    const loginResult = await this.login({
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      mobile_number: user.mobile_number,
+    });
 
     return {
       message: 'Admin role created and assigned successfully',
-      ...loginResult
+      ...loginResult,
     };
   }
 }

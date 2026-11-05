@@ -13,9 +13,8 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
-  UploadedFile,
 } from '@nestjs/common';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
 import { jwtConstants } from './constants';
 import { LocalAuthGuard } from './local.auth.guard';
@@ -26,7 +25,11 @@ import { JwtAuthGuard } from './jwt-auth.gurard';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyCodeDto } from './dto/verify-code.dto';
-import { OnboardingCreateCompanyDto, OnboardingSetupAdminRoleDto } from './dto/onboarding.dto';
+import {
+  CompleteRegistrationDto,
+  OnboardingCreateCompanyDto,
+  OnboardingSetupAdminRoleDto,
+} from './dto/onboarding.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -34,20 +37,6 @@ export class AuthController {
     private readonly authService: AuthService,
     private jwtService: JwtService,
   ) { }
-
-  // @Post('refresh')
-  // async refreshToken(@Body('refreshToken') refreshToken: string) {
-  //   const user = this.validateRefreshToken(refreshToken);
-  //   return this.authService.refreshToken(user);
-  // }
-
-  // private validateRefreshToken(token: string) {
-  //   try {
-  //     return this.authService.verifyToken(token, jwtConstants.refresh_secret);
-  //   } catch (error) {
-  //     throw new UnauthorizedException('Invalid refresh token');
-  //   }
-  // }
 
   @Public()
   @Post('refresh')
@@ -65,7 +54,6 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req, @Res({ passthrough: true }) res: Response) {
-
     const loginResult = await this.authService.login(req.user);
 
     res.cookie('refreshToken', loginResult.refresh_token, {
@@ -85,10 +73,10 @@ export class AuthController {
   @Public()
   @Post('google')
   async googleLogin(
-    @Body() body: { access_token: string },
+    @Body() body: { access_token: string; action?: 'login' | 'register' },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.googleLogin(body?.access_token);
+    const result = await this.authService.googleLogin(body?.access_token, body?.action);
 
     res.cookie('refreshToken', result.refresh_token, {
       httpOnly: true,
@@ -103,13 +91,6 @@ export class AuthController {
       return_user: result.return_user,
     };
   }
-
-  // @Post('logout')
-  // async logout(@Res() res: Response, @Req() req: Request) {
-  //   // Clear cookies
-  //   res.clearCookie('refreshToken');
-  //   return res.send({ message: 'Logged out' });
-  // }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout')
@@ -196,39 +177,39 @@ export class AuthController {
   @Public()
   @Post('send-otp')
   @HttpCode(HttpStatus.CREATED)
-  async register(
-    @Body() dto: RegisterDto,
-  ) {
-    return this.authService.register(
-      dto.email,
-    );
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto.email);
   }
 
   @Public()
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
-  async verifyOtp(
-    @Body() dto: VerifyCodeDto,
-  ) {
+  async verifyOtp(@Body() dto: VerifyCodeDto) {
     return this.authService.verifyOtp(dto.email, dto.code);
   }
 
   @Public()
-  @Post('complete')
+  @Post(['complete', 'complete-registration'])
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileFieldsInterceptor([
-    { name: 'userProfilePicture', maxCount: 1 },
-    { name: 'companyProfilePicture', maxCount: 1 },
-  ]))
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'userProfilePicture', maxCount: 1 },
+      { name: 'companyProfilePicture', maxCount: 1 },
+    ]),
+  )
   async completeRegistration(
-    @Body() dto: any,
+    @Body() dto: CompleteRegistrationDto,
     @Res({ passthrough: true }) res: Response,
-    @UploadedFiles() files: { userProfilePicture?: Express.Multer.File[], companyProfilePicture?: Express.Multer.File[] }
+    @UploadedFiles()
+    files: {
+      userProfilePicture?: Express.Multer.File[];
+      companyProfilePicture?: Express.Multer.File[];
+    },
   ) {
     const result = await this.authService.completeRegistration(
-      dto, 
-      files?.userProfilePicture?.[0], 
-      files?.companyProfilePicture?.[0]
+      dto,
+      files?.userProfilePicture?.[0],
+      files?.companyProfilePicture?.[0],
     );
 
     res.cookie('refreshToken', result.refresh_token, {
@@ -249,20 +230,21 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('onboarding/create-company')
-  @UseInterceptors(FileFieldsInterceptor([
-    { name: 'companyProfilePicture', maxCount: 1 }
-  ]))
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'companyProfilePicture', maxCount: 1 }]),
+  )
   @HttpCode(HttpStatus.CREATED)
   async onboardingCreateCompany(
     @Body() dto: OnboardingCreateCompanyDto,
     @Request() req,
-    @UploadedFiles() files: { companyProfilePicture?: Express.Multer.File[] }
+    @UploadedFiles() files: { companyProfilePicture?: Express.Multer.File[] },
   ) {
     return this.authService.onboardingCreateCompany(
       dto.company_name,
       req.user,
       files?.companyProfilePicture?.[0],
       dto.company_address,
+      dto.crm,
     );
   }
 
@@ -272,7 +254,7 @@ export class AuthController {
   async onboardingSetupAdminRole(
     @Body() dto: OnboardingSetupAdminRoleDto,
     @Request() req,
-    @Res({ passthrough: true }) res: Response
+    @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.onboardingSetupAdminRole(
       dto.companyId,
@@ -289,4 +271,3 @@ export class AuthController {
     return result;
   }
 }
-

@@ -18,6 +18,23 @@ import { TaskAttachment } from '../task-attachment/task-attachment.entity';
 import { Checklist } from '../../common/checklist/checklist.entity';
 import { RedisService } from '../../redis/redis.service';
 
+export interface AuthenticatedTaskUser {
+  userId?: number;
+  id?: number;
+  email?: string;
+  username?: string;
+  privileges?: string[];
+}
+
+const NON_COMPLETE_STATUS_SQL =
+  `(entity.statusBase IS NULL OR entity.statusBase NOT IN (:...completedStatusBases)) ` +
+  `AND (entity.statusName IS NULL OR LOWER(TRIM(entity.statusName)) NOT IN (:...completedStatusNames))`;
+
+const NON_COMPLETE_STATUS_PARAMS = {
+  completedStatusBases: [StatusBaseEnum.FINISHED, 'Complete', 'Completed'],
+  completedStatusNames: ['complete', 'completed', 'finished'],
+};
+
 @Injectable()
 export class TmTaskService {
   constructor(
@@ -2376,6 +2393,340 @@ export class TmTaskService {
     }
   }
 
+  async searchTasks(
+    param: QueryParam,
+    authUser?: AuthenticatedTaskUser,
+    activeCompanyId?: number,
+  ): Promise<{ total: number; data: object[] }> {
+    const { first, rows, multiSorts, filters, withRelations } = param;
+    const modifiedFilters = filters ? [...filters] : [];
+
+    if (
+      activeCompanyId &&
+      activeCompanyId !== 0 &&
+      !modifiedFilters.some((f) => f.field === 'companyId')
+    ) {
+      modifiedFilters.push({
+        field: 'companyId',
+        matchMode: 'equals',
+        value: activeCompanyId,
+      });
+    }
+
+    let query = this.entityManager
+      .getRepository(Task)
+      .createQueryBuilder('entity');
+
+    // Pre-resolve logged-in user's Resource IDs if "Assigned to me" filter is active
+    const hasAssignedToMeFilter = modifiedFilters.some(
+      (fl) =>
+        (fl.field === 'assignedToMe' || fl.matchMode === 'assignedToMe') &&
+        (fl.value === true || fl.value === 'true'),
+    );
+
+    let assignedToMeResourceIds: number[] = [];
+    const loggedInUserId = authUser?.userId ?? authUser?.id;
+    const loggedInEmail = authUser?.email?.trim();
+
+    if (hasAssignedToMeFilter) {
+      if (!loggedInUserId && !loggedInEmail) {
+        throw new HttpException(
+          'Authenticated user context is required for the "Assigned to me" filter',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      let resourceQb = this.entityManager
+        .getRepository(Resource)
+        .createQueryBuilder('resource')
+        .select(['resource.id']);
+
+      if (loggedInUserId && loggedInEmail) {
+        resourceQb = resourceQb.where(
+          '(resource.userId = :loggedInUserId OR LOWER(resource.email) = LOWER(:loggedInEmail))',
+          { loggedInUserId, loggedInEmail },
+        );
+      } else if (loggedInUserId) {
+        resourceQb = resourceQb.where('resource.userId = :loggedInUserId', {
+          loggedInUserId,
+        });
+      } else if (loggedInEmail) {
+        resourceQb = resourceQb.where(
+          'LOWER(resource.email) = LOWER(:loggedInEmail)',
+          { loggedInEmail },
+        );
+      }
+
+      if (activeCompanyId && activeCompanyId !== 0) {
+        resourceQb = resourceQb.andWhere(
+          'resource.companyId = :resourceCompanyId',
+          { resourceCompanyId: activeCompanyId },
+        );
+      }
+
+      const matchedResources = await resourceQb.getMany();
+      assignedToMeResourceIds = matchedResources
+        .map((r) => r.id)
+        .filter((id): id is number => typeof id === 'number');
+    }
+
+    modifiedFilters.forEach((fl) => {
+      // 1. Custom Filter: "Assigned to me"
+      //    Matches tasks assigned to the logged-in user — ALL statuses (including Complete)
+      if (fl.field === 'assignedToMe' || fl.matchMode === 'assignedToMe') {
+        if (fl.value === true || fl.value === 'true') {
+          if (assignedToMeResourceIds.length > 0 && loggedInEmail) {
+            query = query.andWhere(
+              '(entity.assigneeId = ANY(:assignedToMeResourceIds) OR LOWER(entity.assigneeEmail) = LOWER(:assignedToMeEmail))',
+              {
+                assignedToMeResourceIds,
+                assignedToMeEmail: loggedInEmail,
+              },
+            );
+          } else if (assignedToMeResourceIds.length > 0) {
+            query = query.andWhere(
+              'entity.assigneeId = ANY(:assignedToMeResourceIds)',
+              { assignedToMeResourceIds },
+            );
+          } else if (loggedInUserId && loggedInEmail) {
+            query = query.andWhere(
+              '(entity.assigneeId = :assignedToMeUserId OR LOWER(entity.assigneeEmail) = LOWER(:assignedToMeEmail))',
+              {
+                assignedToMeUserId: loggedInUserId,
+                assignedToMeEmail: loggedInEmail,
+              },
+            );
+          } else if (loggedInUserId) {
+            query = query.andWhere('entity.assigneeId = :assignedToMeUserId', {
+              assignedToMeUserId: loggedInUserId,
+            });
+          } else if (loggedInEmail) {
+            query = query.andWhere(
+              'LOWER(entity.assigneeEmail) = LOWER(:assignedToMeEmail)',
+              { assignedToMeEmail: loggedInEmail },
+            );
+          }
+        }
+        return;
+      }
+
+      // 2. Custom Filter: "Due today"
+      //    Matches tasks where status is NOT 'Complete' AND dueDate <= today
+      if (fl.field === 'dueToday' || fl.matchMode === 'dueToday') {
+        if (fl.value) {
+          const todayDateStr =
+            typeof fl.value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fl.value)
+              ? fl.value.slice(0, 10)
+              : new Date().toISOString().split('T')[0];
+
+          query = query
+            .andWhere('entity.dueDate IS NOT NULL')
+            .andWhere('DATE(entity.dueDate) <= :dueTodayDate', {
+              dueTodayDate: todayDateStr,
+            })
+            .andWhere(NON_COMPLETE_STATUS_SQL, NON_COMPLETE_STATUS_PARAMS);
+        }
+        return;
+      }
+
+      // 3. Custom Filter: "Overdue" (DateRange — same { start, end } shape as Ticket SLA filters)
+      //    status NOT 'Complete' AND
+      //      - single date { start }      → dueDate <  start
+      //      - date range  { start, end } → start <= dueDate <= end
+      //    Legacy payloads with a plain date string are treated as a single date.
+      if (
+        fl.field === 'overdueDate' ||
+        fl.field === 'overdue' ||
+        fl.matchMode === 'overdue'
+      ) {
+        const range = this.parseOverdueRange(fl.value);
+        const isRange = Boolean(range.start && range.end && range.start !== range.end);
+
+        if (isRange) {
+          // Date Range: two distinct dates (dueDate >= from AND dueDate <= to)
+          const [from, to] =
+            (range.start as string) <= (range.end as string)
+              ? [range.start, range.end]
+              : [range.end, range.start];
+          query = query
+            .andWhere('entity.dueDate IS NOT NULL')
+            .andWhere('DATE(entity.dueDate) >= :overdueRangeStart', {
+              overdueRangeStart: from,
+            })
+            .andWhere('DATE(entity.dueDate) <= :overdueRangeEnd', {
+              overdueRangeEnd: to,
+            })
+            .andWhere(NON_COMPLETE_STATUS_SQL, NON_COMPLETE_STATUS_PARAMS);
+        } else if (range.start || range.end) {
+          // Single Date: start and end are identical OR only one date provided (dueDate < cutoffDate)
+          const cutoffDate = range.start ?? range.end;
+          query = query
+            .andWhere('entity.dueDate IS NOT NULL')
+            .andWhere('DATE(entity.dueDate) < :overdueSelectedDate', {
+              overdueSelectedDate: cutoffDate,
+            })
+            .andWhere(NON_COMPLETE_STATUS_SQL, NON_COMPLETE_STATUS_PARAMS);
+        }
+        return;
+      }
+
+      // Standard matchModes that do not require a value
+      if (fl.matchMode === 'is-null') {
+        query = query.andWhere(`entity.${fl.field} IS NULL`);
+        return;
+      }
+      if (fl.matchMode === 'not-null') {
+        query = query.andWhere(`entity.${fl.field} IS NOT NULL`);
+        return;
+      }
+
+      if (fl?.value !== undefined && fl?.value !== null && fl?.value !== '') {
+        const paramKey = `${fl.field.replace(/\./g, '_')}_${Math.random()
+          .toString(36)
+          .substring(2, 8)}`;
+
+        if (fl.matchMode === 'startsWith') {
+          query = query.andWhere(`entity.${fl.field} ILIKE :${paramKey}`, {
+            [paramKey]: `${fl.value}%`,
+          });
+        } else if (fl.matchMode === 'endsWith') {
+          query = query.andWhere(`entity.${fl.field} ILIKE :${paramKey}`, {
+            [paramKey]: `%${fl.value}`,
+          });
+        } else if (fl.matchMode === 'contains') {
+          query = query.andWhere(`entity.${fl.field} ILIKE :${paramKey}`, {
+            [paramKey]: `%${fl.value}%`,
+          });
+        } else if (fl.matchMode === 'notContains') {
+          query = query.andWhere(`entity.${fl.field} NOT ILIKE :${paramKey}`, {
+            [paramKey]: `%${fl.value}%`,
+          });
+        } else if (fl.matchMode === 'equals') {
+          query = query.andWhere(`entity.${fl.field} = :${paramKey}`, {
+            [paramKey]: fl.value.toString().trim(),
+          });
+        } else if (fl.matchMode === 'notEquals') {
+          query = query.andWhere(`entity.${fl.field} <> :${paramKey}`, {
+            [paramKey]: fl.value.toString().trim(),
+          });
+        } else if (fl.matchMode === 'equal-trim') {
+          query = query.andWhere(`TRIM(entity.${fl.field}) = :${paramKey}`, {
+            [paramKey]: fl.value.toString().trim(),
+          });
+        } else if (fl.matchMode === 'in' || fl.matchMode === 'list') {
+          const valArray = Array.isArray(fl.value) ? fl.value : [fl.value];
+          if (valArray.length === 0) {
+            query = query.andWhere('1 = 0');
+          } else {
+            query = query.andWhere(`entity.${fl.field} = ANY(:${paramKey})`, {
+              [paramKey]: valArray,
+            });
+          }
+        } else if (fl.matchMode === 'null') {
+          query = query.andWhere(`COALESCE(entity.${fl.field}, '') = ''`);
+        } else if (fl.matchMode === 'null-0') {
+          query = query.andWhere(`COALESCE(entity.${fl.field}, '0') = '0'`);
+        } else if (
+          fl.matchMode &&
+          ['>', '<', '>=', '<='].includes(fl.matchMode)
+        ) {
+          query = query.andWhere(
+            `entity.${fl.field} ${fl.matchMode} :${paramKey}`,
+            { [paramKey]: fl.value.toString() },
+          );
+        } else if (fl.matchMode === 'date') {
+          query = query.andWhere(
+            `entity.${fl.field} BETWEEN :startDate AND :endDate`,
+            {
+              startDate: `${fl.value}T00:00:00.000000`,
+              endDate: `${fl.value}T23:59:59.999999`,
+            },
+          );
+        } else if (fl.matchMode === 'dateIs') {
+          const date1 = new Date(String(fl.value)).toISOString().split('T')[0];
+          query = query.andWhere(`DATE(entity.${fl.field}) = :${paramKey}`, {
+            [paramKey]: date1,
+          });
+        } else if (fl.matchMode === 'dateIsNot') {
+          const date1 = new Date(String(fl.value)).toISOString().split('T')[0];
+          query = query.andWhere(`DATE(entity.${fl.field}) <> :${paramKey}`, {
+            [paramKey]: date1,
+          });
+        } else if (fl.matchMode === 'dateBefore') {
+          const date1 = new Date(String(fl.value)).toISOString().split('T')[0];
+          query = query.andWhere(`DATE(entity.${fl.field}) < :${paramKey}`, {
+            [paramKey]: date1,
+          });
+        } else if (fl.matchMode === 'dateAfter') {
+          const date1 = new Date(String(fl.value)).toISOString().split('T')[0];
+          query = query.andWhere(`DATE(entity.${fl.field}) > :${paramKey}`, {
+            [paramKey]: date1,
+          });
+        } else if (fl.matchMode === 'dateBetween') {
+          if (Array.isArray(fl.value) && fl.value.length === 2) {
+            const startDate = new Date(String(fl.value[0]))
+              .toISOString()
+              .split('T')[0];
+            const endDate = new Date(String(fl.value[1]))
+              .toISOString()
+              .split('T')[0];
+
+            query = query.andWhere(
+              `DATE(entity.${fl.field}) BETWEEN :${paramKey}_start AND :${paramKey}_end`,
+              {
+                [`${paramKey}_start`]: startDate,
+                [`${paramKey}_end`]: endDate,
+              },
+            );
+          }
+        } else if (fl.matchMode === 'relation-in') {
+          const relValue = fl.value as {
+            joinTable: string;
+            ownerColumn: string;
+            filterColumn: string;
+            ids: number[];
+          };
+          if (
+            relValue &&
+            Array.isArray(relValue.ids) &&
+            relValue.ids.length > 0
+          ) {
+            const sanitise = (s: string) => s.replace(/[^\w.]/g, '');
+            const joinTable = sanitise(relValue.joinTable);
+            const ownerColumn = sanitise(relValue.ownerColumn);
+            const filterColumn = sanitise(relValue.filterColumn);
+            query = query.andWhere(
+              `entity.id IN (SELECT "${ownerColumn}" FROM "${joinTable}" WHERE "${filterColumn}" IN (:...${paramKey}))`,
+              { [paramKey]: relValue.ids },
+            );
+          }
+        }
+      }
+    });
+
+    const countPromise = query.clone().getCount();
+
+    withRelations?.forEach((rel) => {
+      query = query.leftJoinAndSelect(`entity.${rel}`, rel);
+    });
+
+    if (multiSorts) {
+      multiSorts.forEach((ms) => {
+        query = query.addOrderBy(
+          `entity.${ms.field}`,
+          ms.order === 'DESC' || ms.order === '-1' || +ms.order === -1
+            ? 'DESC'
+            : 'ASC',
+        );
+      });
+    }
+
+    query = query.offset(first ? +first : 0).limit(rows ? +rows : 1000);
+
+    const [total, data] = await Promise.all([countPromise, query.getMany()]);
+    return { total, data };
+  }
+
   async searchWithStatus(
     param: QueryParam,
     activeCompanyId?: number,
@@ -2796,6 +3147,33 @@ export class TmTaskService {
     attachment.createdAt = new Date();
 
     return this.entityManager.save(TaskAttachment, attachment);
+  }
+
+  /** Normalises a date-ish value to yyyy-MM-dd, or throws 400 if it is not a valid date. */
+  private toIsoDateOrThrow(value: unknown, label: string): string | null {
+    if (value === undefined || value === null || value === '') return null;
+    const raw = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    if (isNaN(parsed.getTime())) {
+      throw new BadRequestException(`Invalid ${label} date for Overdue filter`);
+    }
+    return parsed.toISOString().split('T')[0];
+  }
+
+  /** Accepts { start, end } (Ticket SLA range shape) or a legacy single date string. */
+  private parseOverdueRange(value: unknown): {
+    start: string | null;
+    end: string | null;
+  } {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const { start, end } = value as { start?: unknown; end?: unknown };
+      return {
+        start: this.toIsoDateOrThrow(start, 'start'),
+        end: this.toIsoDateOrThrow(end, 'end'),
+      };
+    }
+    return { start: this.toIsoDateOrThrow(value, 'cutoff'), end: null };
   }
 
   private async invalidateTaskMembers(taskId: number, additionalMemberIds: number[] = []) {
