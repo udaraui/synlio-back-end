@@ -1,6 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../common/base/base.entity';
-import { NodeUsageDetailDto } from './dto/ai-audit-payload.dto';
+import { BaseEntity } from '../../common/base/base.entity';
+import { NodeUsageDetailDto } from './ai-audit-payload.dto';
 
 @Entity('ai_audit_logs')
 @Index('idx_ai_audit_request', ['requestId'])

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
+import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 
 export interface ResolutionResult {
   resolvedDraft: any;
@@ -56,6 +57,70 @@ export class TicketEntityResolverService {
 
     const resolved = { ...draft };
     const warnings: string[] = [];
+
+    // 0. If cloning or copying from a source ticket, fetch and populate fields from the source ticket
+    if (resolved.sourceTicketCode) {
+      const sourceCode = String(resolved.sourceTicketCode).trim().toUpperCase();
+      try {
+        const sourceTicket = await this.entityManager
+          .createQueryBuilder(Ticket, 'ticket')
+          .leftJoinAndSelect('ticket.ticketSpace', 'space')
+          .leftJoinAndSelect('ticket.ticketType', 'ticketType')
+          .leftJoinAndSelect('ticket.severity', 'severity')
+          .leftJoinAndSelect('ticket.status', 'status')
+          .leftJoinAndSelect('ticket.queue', 'queue')
+          .leftJoinAndSelect('ticket.assignee', 'assignee')
+          .where('ticket.companyId = :companyId', { companyId })
+          .andWhere('UPPER(ticket.code) = UPPER(:code)', { code: sourceCode })
+          .getOne();
+
+        if (sourceTicket) {
+          const currName = String(resolved.name || '').trim().toLowerCase();
+          const isPlaceholderName =
+            !resolved.name ||
+            currName.startsWith('clone of ') ||
+            currName.includes('same as') ||
+            currName.includes('copy of') ||
+            currName.includes('duplicate') ||
+            currName === `${sourceCode.toLowerCase()} (clone)` ||
+            currName === sourceCode.toLowerCase();
+
+          // Use the source ticket's title and append " (clone)"
+          if (isPlaceholderName) {
+            resolved.name = `${sourceTicket.name} (clone)`;
+          }
+          if (!resolved.description && sourceTicket.description) {
+            resolved.description = sourceTicket.description;
+          }
+          if (!resolved.ticketSpaceId && !resolved.ticketSpaceName && sourceTicket.ticketSpaceId) {
+            resolved.ticketSpaceId = Number(sourceTicket.ticketSpaceId);
+            resolved.ticketSpaceName = sourceTicket.ticketSpaceName || sourceTicket.ticketSpace?.name;
+          }
+          if (!resolved.ticketTypeId && !resolved.ticketTypeName && sourceTicket.ticketTypeId) {
+            resolved.ticketTypeId = Number(sourceTicket.ticketTypeId);
+            resolved.ticketTypeName = sourceTicket.ticketTypeName || sourceTicket.ticketType?.name;
+          }
+          if (!resolved.severityId && !resolved.severityName && sourceTicket.severityId) {
+            resolved.severityId = Number(sourceTicket.severityId);
+            resolved.severityName = sourceTicket.severityName || sourceTicket.severity?.name;
+          }
+          if (!resolved.queueId && !resolved.queueName && sourceTicket.queueId) {
+            resolved.queueId = Number(sourceTicket.queueId);
+            resolved.queueName = sourceTicket.queueName || sourceTicket.queue?.name;
+          }
+          if (!resolved.assigneeId && !resolved.assigneeName && sourceTicket.assigneeId) {
+            resolved.assigneeId = Number(sourceTicket.assigneeId);
+            resolved.assigneeName =
+              sourceTicket.assigneeName ||
+              (sourceTicket.assignee ? `${sourceTicket.assignee.userFirstName || ''} ${sourceTicket.assignee.userLastName || ''}`.trim() : undefined);
+          }
+        } else {
+          warnings.push(`Source ticket "${sourceCode}" was not found.`);
+        }
+      } catch (err: any) {
+        console.error(`Error fetching source ticket ${sourceCode}:`, err);
+      }
+    }
 
     // 1. Resolve Ticket Space
     let resolvedSpaceId = resolved.ticketSpaceId ? Number(resolved.ticketSpaceId) : null;
@@ -128,6 +193,21 @@ export class TicketEntityResolverService {
         if (matchedStatus) {
           resolved.statusId = Number(matchedStatus.id);
           resolved.statusName = matchedStatus.name;
+        }
+      }
+
+      // Resolve Queue
+      if (resolved.queueName && !resolved.queueId) {
+        const queueRows: Array<{ id: number; name: string }> = await this.entityManager.query(
+          `SELECT "id", "name" FROM ticket_space_queue_config WHERE "ticketSpaceId" = $1`,
+          [resolvedSpaceId]
+        );
+        const targetQueue = resolved.queueName.trim().toLowerCase();
+        const matchedQueue = queueRows.find((q) => q.name.toLowerCase() === targetQueue) ||
+          queueRows.find((q) => q.name.toLowerCase().includes(targetQueue) || targetQueue.includes(q.name.toLowerCase()));
+        if (matchedQueue) {
+          resolved.queueId = Number(matchedQueue.id);
+          resolved.queueName = matchedQueue.name;
         }
       }
     }

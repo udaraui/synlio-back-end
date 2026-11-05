@@ -1256,10 +1256,10 @@ export class CalendarService {
 
     const weeks = await queryBuilder.getRawMany();
 
-    console.log("calendarId", calendar.id);
-    console.log("year", currentYear);
-    console.log("query", queryBuilder.getSql());
-    console.log("weeks", weeks);
+    // console.log("calendarId", calendar.id);
+    // console.log("year", currentYear);
+    // console.log("query", queryBuilder.getSql());
+    // console.log("weeks", weeks);
 
     return weeks.map(w => ({
       weekNumber: w.weekNumber,

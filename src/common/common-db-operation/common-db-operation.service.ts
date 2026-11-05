@@ -29,7 +29,7 @@ export class CommonDbOperationService {
     let total = 0;
     let data: ObjectLiteral[] = [];
 
-    // console.log('------------', param);
+    // console.log('+++++++++++++++++', param);
 
     const { first, rows, multiSorts, filters, withRelations } = param;
     let query = this.entityManager

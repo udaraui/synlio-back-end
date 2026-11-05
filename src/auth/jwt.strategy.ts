@@ -16,7 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       //   // ExtractJwt.fromAuthHeaderAsBearerToken(),
       //   // If that doesn't work, try to extract from cookies
       //   (req: Request) => {
-      //     //console.log('🟢 Extracting accessToken from cookies :', req.cookies['accessToken']);
+      //     //console.log('Extracting accessToken from cookies :', req.cookies['accessToken']);
       //     return req.cookies['accessToken'] || null; // Replace 'token' with the cookie name you use
       //   },
       // ]),

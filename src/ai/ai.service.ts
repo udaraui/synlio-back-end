@@ -4,6 +4,7 @@ import axios from 'axios';
 import { RedisService } from '../redis/redis.service';
 import { getOrBuildVisibilityCache } from '../task-management/guards/visibility-cache.util';
 import { TicketEntityResolverService } from './resolver/ticket-entity-resolver.service';
+import { TicketMutationExecutorService } from './executor/ticket-mutation-executor.service';
 import { Transform } from 'stream';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class AiService {
     private readonly entityManager: EntityManager,
     private readonly redisService: RedisService,
     private readonly entityResolverService: TicketEntityResolverService,
+    private readonly mutationExecutorService: TicketMutationExecutorService,
   ) {}
 
   private readonly MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -187,14 +189,110 @@ export class AiService {
         },
       );
 
-      // 6. Transparent Stream Transform with Entity Resolution
+      // 6. Transparent Stream Transform with Entity Resolution and Mutation Execution
       const entityResolver = this.entityResolverService;
+      const mutationExecutor = this.mutationExecutorService;
       let buffer = '';
 
       const transformStream = new Transform({
         async transform(chunk, encoding, callback) {
           const text = chunk.toString();
           buffer += text;
+
+          // Check if buffer contains a mutation payload marker
+          if (buffer.includes('__MUTATION_PAYLOAD__')) {
+            const parts = buffer.split('__MUTATION_PAYLOAD__');
+            const beforeMarker = parts[0];
+            const jsonPart = parts[1];
+
+            let parsed: any;
+            try {
+              parsed = JSON.parse(jsonPart.trim());
+            } catch {
+              // Incomplete chunk, keep waiting in buffer (do not push raw chunk downstream)
+              return callback();
+            }
+
+            try {
+              const targets = parsed.targets || [];
+
+              // If no explicit targets were specified, resolve candidate tickets and return options
+              if (targets.length === 0 || parsed.status === 'NEEDS_INPUT') {
+                const requestedSpaceId = Number(
+                  context?.ticketSpaceId ||
+                  context?.spaceId ||
+                  (allowedTicketSpaceIds && allowedTicketSpaceIds[0]) ||
+                  0
+                );
+
+                const candidates = await mutationExecutor.findCandidateTickets(
+                  parsed,
+                  companyId,
+                  allowedTicketSpaceIds,
+                  user,
+                  requestedSpaceId,
+                );
+
+                const optionsPayload = {
+                  action: 'UPDATE_TICKET',
+                  status: 'NEEDS_INPUT',
+                  summary: candidates.summary,
+                  changes: parsed.changes || {},
+                  options: candidates.options,
+                  candidateTickets: candidates.candidateTickets,
+                  needs: [
+                    {
+                      field: 'targetTicket',
+                      label: 'Select Ticket',
+                      options: candidates.options.map((o) => ({
+                        id: o.id,
+                        name: o.actionText,
+                        label: o.label,
+                      })),
+                    },
+                  ],
+                };
+
+                this.push(`__FINAL__${beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
+                buffer = '';
+                return callback();
+              }
+
+              // Explicit targets were provided -> prepare mutation draft for UI confirmation
+              const mutationDraft = await mutationExecutor.prepareTicketMutationDraft(
+                parsed,
+                companyId,
+                allowedTicketSpaceIds,
+                user,
+              );
+
+              if (mutationDraft.drafts.length === 0) {
+                // Ticket(s) not found in database! Stream the friendly not found message and do NOT show a draft card!
+                this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                buffer = '';
+                return callback();
+              }
+
+              let displaySummary = beforeMarker.trim();
+              if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
+                const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
+                if (mutationDraft.allUnrecognized) {
+                  displaySummary = uniqueWarnings.join('\n\n');
+                } else {
+                  displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
+                }
+              }
+
+              this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(mutationDraft)}`);
+              buffer = '';
+              return callback();
+            } catch (err: any) {
+              console.error('Error in ticket mutation processing:', err);
+              this.push(`__FINAL__I encountered an issue preparing the update draft: ${err.message || 'Please try again.'}\n\n`);
+              buffer = '';
+              return callback();
+            }
+          }
 
           // Check if buffer contains a draft payload marker
           if (buffer.includes('__DRAFT_PAYLOAD__')) {
@@ -216,22 +314,29 @@ export class AiService {
               );
 
               const isArray = Array.isArray(resolvedDraft);
+              const allWarnings = [...(parsed.warnings || []), ...warnings];
               const resolvedPayload = {
                 action: parsed.action || 'CREATE_TICKET',
                 status: parsed.status || 'READY',
                 summary: parsed.summary,
                 draft: isArray ? resolvedDraft[0] : resolvedDraft,
                 drafts: isArray ? resolvedDraft : (parsed.drafts || [resolvedDraft]),
-                warnings: [...(parsed.warnings || []), ...warnings],
+                warnings: allWarnings,
                 needs: parsed.needs || [],
               };
 
-              this.push(beforeMarker);
-              this.push(`__DRAFT_PAYLOAD__${JSON.stringify(resolvedPayload)}`);
+              let displaySummary = beforeMarker.trim();
+              if (allWarnings.length > 0) {
+                const uniqueWarnings = Array.from(new Set(allWarnings));
+                displaySummary += '\n\n' + uniqueWarnings.map((w) => `⚠️ ${w}`).join('\n');
+              }
+
+              this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(resolvedPayload)}`);
               buffer = '';
               return callback();
             } catch {
-              // Incomplete chunk, keep waiting in buffer
+              // Incomplete chunk, keep waiting in buffer (do not push raw chunk downstream)
+              return callback();
             }
           }
 

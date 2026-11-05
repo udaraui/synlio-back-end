@@ -346,8 +346,8 @@ export class TicketSpaceMemberService {
     }
 
     if (errors.length > 0 && results.length === 0) {
-      console.log("errors", errors);
-      console.log("results", results);
+      // console.log("errors", errors);
+      // console.log("results", results);
       
       throw new BadRequestException({
         message: 'Failed to add any permissions',

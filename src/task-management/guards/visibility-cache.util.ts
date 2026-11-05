@@ -22,14 +22,14 @@ export async function getOrBuildVisibilityCache(
   if (cachedData) {
     const parsed = JSON.parse(cachedData);
     if (!Array.isArray(parsed)) {
-      console.log(`getting ${logContext} data from cache for user: ${email}, company :${companyId}`);
+      // console.log(`getting ${logContext} data from cache for user: ${email}, company :${companyId}`);
       // console.timeEnd(`VisibilityCache Build (${logContext})`);
       return parsed;
     }
     // If it's an array, it's the old cache format. Ignore and rebuild.
   }
 
-  console.log(`getting ${logContext} data from db for user: ${email}, company :${companyId}`);
+  // console.log(`getting ${logContext} data from db for user: ${email}, company :${companyId}`);
 
   const visibilityDict: Record<number, number[]> = {};
 

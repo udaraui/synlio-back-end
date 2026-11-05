@@ -6,7 +6,8 @@ import { AuthorizationGuard } from '../authorization/decorator/authorization.gua
 import { AuthorizationPermissions } from '../authorization/decorator/authorization-permissions.decorator';
 import { Public } from '../auth/public.decorator';
 import { ServiceBusService } from '../common/azure/service-bus.service';
-import { AiAuditPayloadDto } from './dto/ai-audit-payload.dto';
+import { AiAuditPayloadDto } from './ai-audit-log/ai-audit-payload.dto';
+import { TicketMutationExecutorService } from './executor/ticket-mutation-executor.service';
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -14,7 +15,8 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly serviceBusService: ServiceBusService,
-  ) {}
+    private readonly mutationExecutorService: TicketMutationExecutorService,
+  ) { }
 
   @Post()
   @AuthorizationPermissions('120')
@@ -35,12 +37,12 @@ export class AiController {
     const companyId = Number(selectedCompanyHeader || req.activeCompany?.companyId || 0);
 
     const stream = await this.aiService.processChat(message, conversationId, user, companyId, agent, context, chatMode, history, pendingDraft, attachments);
-    
+
     // Set proper headers to ensure the browser and Express don't buffer the stream
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    
+
     stream.pipe(res);
   }
 
@@ -50,5 +52,23 @@ export class AiController {
   async recordAuditTelemetry(@Body() payload: AiAuditPayloadDto) {
     await this.serviceBusService.sendAiAuditJob(payload);
     return { status: 'enqueued', requestId: payload?.requestId };
+  }
+  @Post('mutate')
+  @AuthorizationPermissions('120')
+  async executeMutation(
+    @Body() payload: any,
+    @Req() req: any,
+    @Headers('x-selected-company') selectedCompanyHeader: string,
+  ) {
+    const user = req.user;
+    const companyId = Number(selectedCompanyHeader || req.activeCompany?.companyId || 0);
+    const allowedTicketSpaceIds = user?.ticketSpaces || [];
+
+    return await this.mutationExecutorService.executeTicketMutation(
+      payload,
+      companyId,
+      allowedTicketSpaceIds,
+      user,
+    );
   }
 }

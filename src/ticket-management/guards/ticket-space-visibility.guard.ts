@@ -33,9 +33,9 @@ export class TicketSpaceVisibilityGuard implements CanActivate {
 
     if (cachedIds) {
       spaceIds = JSON.parse(cachedIds);
-      console.log(`getting ticket space data from cache for user: ${user.email}, company :${activeCompanyId}`);
+      // console.log(`getting ticket space data from cache for user: ${user.email}, company :${activeCompanyId}`);
     } else {
-      console.log(`getting ticket space data from db for user: ${user.email}, company :${activeCompanyId}`);
+      // console.log(`getting ticket space data from db for user: ${user.email}, company :${activeCompanyId}`);
       // 2. Fallback to SQL
       const accessibleTicketSpaces = await this.entityManager.query(`
         SELECT "ticketSpaceId" FROM ticket_space_member WHERE "userId" = $1

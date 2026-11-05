@@ -16,8 +16,8 @@ import { EmailClient } from '@azure/communication-email';
 import { Email } from '../../alert/email/email.entity';
 import { Notification } from '../../alert/notification/notification.entity';
 import { WebPubSubService } from './web-pubsub.service';
-import { AiAuditLog } from '../../ai/ai-audit-log.entity';
-import { AiAuditPayloadDto } from '../../ai/dto/ai-audit-payload.dto';
+import { AiAuditLog } from '../../ai/ai-audit-log/ai-audit-log.entity';
+import { AiAuditPayloadDto } from '../../ai/ai-audit-log/ai-audit-payload.dto';
 
 // ── Message shapes ─────────────────────────────────────────────────────────
 type EmailMessage = { type: 'email'; id: number };

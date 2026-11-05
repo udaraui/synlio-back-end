@@ -79,7 +79,7 @@ import { WorkItemLink } from '../link-management/work-item-link/work-item-link.e
 import { TicketTemplate } from 'src/ticket-management/ticket-template/ticket-template.entity';
 import { FilterTemplate } from '../filter-template/filter-template.entity';
 import { OtpVerification } from '../auth/otp-verification.entity';
-import { AiAuditLog } from 'src/ai/ai-audit-log.entity';
+import { AiAuditLog } from 'src/ai/ai-audit-log/ai-audit-log.entity';
 
 @Module({
   imports: [
