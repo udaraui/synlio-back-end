@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { User } from './user.entity';
 import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 import { UserCompanyRole } from './user-company-role.entity';
