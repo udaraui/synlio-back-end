@@ -24,6 +24,10 @@ import { ResourceSkill } from '../../resource-management/resource/resource-skill
 import { PulseWeek } from '../../pulse/pulse-week.entity';
 import { OtpVerification } from '../../auth/otp-verification.entity';
 import { TaskSpace } from 'src/task-management/task-space/task-space.entity';
+import {
+  USER_PROFILE_UPDATED_EVENT,
+  UserProfileUpdatedEventPayload,
+} from '../../comment/comment/comment.service';
 
 @Injectable()
 export class UserService {
@@ -31,6 +35,7 @@ export class UserService {
     private readonly entityManager: EntityManager,
     private readonly redisService: RedisService,
     private readonly authorizationService: AuthorizationService,
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   async syncUserCompaniesCache(userId: number) {
