@@ -90,7 +90,7 @@ export class MeetingsIntegrationService {
         return this.zoomProvider.buildAuthUrl(clientId, redirectUri, state);
       }
       case MeetingProvider.GOOGLE_MEET: {
-        const clientId = this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID');
+        const clientId = this.configService.getOrThrow<string>('GOOGLE_MEET_CLIENT_ID');
         return this.googleMeetProvider.buildAuthUrl(clientId, redirectUri, state);
       }
       case MeetingProvider.SLACK: {
@@ -141,8 +141,8 @@ export class MeetingsIntegrationService {
         break;
       }
       case MeetingProvider.GOOGLE_MEET: {
-        const clientId = this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID');
-        const clientSecret = this.configService.getOrThrow<string>('GOOGLE_CLIENT_SECRET');
+        const clientId = this.configService.getOrThrow<string>('GOOGLE_MEET_CLIENT_ID');
+        const clientSecret = this.configService.getOrThrow<string>('GOOGLE_MEET_CLIENT_SECRET');
         tokenData = await this.googleMeetProvider.exchangeCodeForTokens(
           code, clientId, clientSecret, redirectUri,
         );
@@ -296,8 +296,8 @@ export class MeetingsIntegrationService {
         break;
       }
       case MeetingProvider.GOOGLE_MEET: {
-        const clientId = this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID');
-        const clientSecret = this.configService.getOrThrow<string>('GOOGLE_CLIENT_SECRET');
+        const clientId = this.configService.getOrThrow<string>('GOOGLE_MEET_CLIENT_ID');
+        const clientSecret = this.configService.getOrThrow<string>('GOOGLE_MEET_CLIENT_SECRET');
         refreshed = await this.googleMeetProvider.refreshAccessToken(
           connection.refreshToken!, clientId, clientSecret,
         );
