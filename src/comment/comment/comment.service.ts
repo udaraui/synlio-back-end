@@ -1,5 +1,6 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
+import { OnEvent } from '@nestjs/event-emitter';
 import { EntityManager } from 'typeorm';
 import { CreateCommentDto, UpdateCommentDto } from './dto/comment.dto';
 import { Comment } from './comment.entity';
@@ -12,11 +13,36 @@ import { Task } from '../../task-management/task/task.entity';
 import { TicketAlertService } from '../../ticket-management/ticket-alert/ticket-alert.service';
 import { TaskAlertService } from '../../task-management/task-alert/task-alert.service';
 
+export const USER_PROFILE_UPDATED_EVENT = 'user.profile.updated';
+
+export interface UserProfileUpdatedEventPayload {
+  userId: number;
+  firstName: string;
+  lastName: string;
+  profilePicture?: string | null;
+}
+
+export interface AuthenticatedUserPayload {
+  id?: number;
+  userId?: number;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  profile_picture?: string | null;
+}
+
+export interface CommentTreeNode extends Comment {
+  childComments: CommentTreeNode[];
+}
+
 @Injectable()
 export class CommentService {
+  private readonly logger = new Logger(CommentService.name);
+
   constructor(
     @InjectEntityManager()
-    private entityManager: EntityManager,
+    private readonly entityManager: EntityManager,
     private readonly ticketAlertService: TicketAlertService,
     private readonly taskAlertService: TaskAlertService,
   ) {}
@@ -24,15 +50,63 @@ export class CommentService {
   async create(
     data: CreateCommentDto,
     files: Express.Multer.File[] | undefined,
-    authUser: any,
-  ) {
+    authUser: AuthenticatedUserPayload,
+  ): Promise<Comment | null> {
+    const {
+      id,
+      userId: jwtUserId,
+      email,
+      first_name,
+      last_name,
+      profile_picture,
+    } = authUser;
+
+    let resolvedUserId = id ?? jwtUserId;
+    let resolvedFirstName = first_name;
+    let resolvedLastName = last_name;
+    let resolvedProfilePicture = profile_picture;
+
+    // Fallback lookup when JwtStrategy only provides { userId, username, email }
+    if (
+      resolvedProfilePicture === undefined ||
+      (!resolvedFirstName && !resolvedLastName)
+    ) {
+      const dbUser = await this.entityManager.findOne(User, {
+        where: resolvedUserId ? { id: resolvedUserId } : { email },
+        select: ['id', 'first_name', 'last_name', 'email', 'profile_picture'],
+      });
+      if (dbUser) {
+        resolvedUserId = resolvedUserId ?? dbUser.id;
+        resolvedFirstName = resolvedFirstName ?? dbUser.first_name;
+        resolvedLastName = resolvedLastName ?? dbUser.last_name;
+        resolvedProfilePicture =
+          resolvedProfilePicture ?? dbUser.profile_picture ?? null;
+      }
+    }
+
+    if (!resolvedUserId || !email) {
+      throw new HttpException(
+        'Authenticated user context is missing required fields',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const constructedUsername =
+      `${resolvedFirstName ?? ''} ${resolvedLastName ?? ''}`.trim() ||
+      authUser.username?.trim() ||
+      email;
+
     const result = await this.entityManager.transaction(
       async (transactionalEntityManager) => {
         const newComment = new Comment();
         newComment.comment = data.comment;
         newComment.postId = data.postId;
         newComment.postType = data.postType;
-        newComment.createdBy = authUser?.email;
+        newComment.createdBy = email;
+        newComment.userId = resolvedUserId;
+        newComment.userEmail = email;
+        newComment.username = constructedUsername;
+        newComment.profilePicture = resolvedProfilePicture ?? null;
 
         // Validate parent comment if provided
         if (data.parentId) {
@@ -56,9 +130,8 @@ export class CommentService {
         // Handle file uploads if files are provided
         const uploadedUrls: string[] = [];
         if (files && files.length > 0) {
-          const userId = authUser?.id || 0;
           for (const file of files) {
-            const fileUrl = await uploadAttachmentToAzure(file, userId);
+            const fileUrl = await uploadAttachmentToAzure(file, resolvedUserId);
             uploadedUrls.push(fileUrl);
           }
         }
@@ -75,7 +148,7 @@ export class CommentService {
             const attachment = new CommentAttachment();
             attachment.link = link;
             attachment.commentId = savedComment.id!;
-            attachment.createdBy = authUser?.email;
+            attachment.createdBy = email;
             return attachment;
           });
 
@@ -88,7 +161,7 @@ export class CommentService {
             where: { id: data.postId },
           });
           if (ticket) {
-            ticket.updatedBy = authUser?.email;
+            ticket.updatedBy = email;
             ticket.updatedAt = new Date();
             await transactionalEntityManager.save(Ticket, ticket);
           }
@@ -97,7 +170,7 @@ export class CommentService {
             where: { id: data.postId },
           });
           if (task) {
-            task.updatedBy = authUser?.email;
+            task.updatedBy = email;
             task.updatedAt = new Date();
             await transactionalEntityManager.save(Task, task);
           }
@@ -136,8 +209,8 @@ export class CommentService {
     id: number,
     data: UpdateCommentDto,
     files: Express.Multer.File[] | undefined,
-    authUser: any,
-  ) {
+    authUser: AuthenticatedUserPayload,
+  ): Promise<Comment | null> {
     return await this.entityManager.transaction(async (manager) => {
       const comment = await manager.findOne(Comment, {
         where: { id },
@@ -231,35 +304,7 @@ export class CommentService {
     });
   }
 
-  // Helper method to enrich comments with user profile information
-  private async enrichCommentWithUserData(comment: any): Promise<any> {
-    if (comment.createdBy) {
-      const user = await this.entityManager.findOne(User, {
-        where: { email: comment.createdBy },
-        select: ['id', 'first_name', 'last_name', 'email', 'profile_picture'],
-      });
-
-      if (user) {
-        comment.createdByUser = {
-          username: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          profile_picture: user.profile_picture,
-        };
-      }
-    }
-
-    // Recursively enrich child comments
-    if (comment.childComments && comment.childComments.length > 0) {
-      for (const childComment of comment.childComments) {
-        await this.enrichCommentWithUserData(childComment);
-      }
-    }
-
-    return comment;
-  }
-
-  async findOne(id: number) {
+  async findOne(id: number): Promise<Comment> {
     const comment = await this.entityManager.findOne(Comment, {
       where: { id },
       relations: ['parentComment', 'childComments', 'commentAttachments'],
@@ -269,30 +314,30 @@ export class CommentService {
       throw new HttpException('Comment not found', HttpStatus.NOT_FOUND);
     }
 
-    // Enrich with user data
-    await this.enrichCommentWithUserData(comment);
-
     return comment;
   }
 
-  async findAll() {
+  async findAll(): Promise<Comment[]> {
     return await this.entityManager.find(Comment, {
       relations: ['parentComment', 'childComments', 'commentAttachments'],
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findByPost(postId: number, postType: string) {
+  async findByPost(
+    postId: number,
+    postType: PostType | string,
+  ): Promise<CommentTreeNode[]> {
     // First, get all comments for this post
     const allComments = await this.entityManager.find(Comment, {
-      where: { postId, postType: postType as any },
+      where: { postId, postType: postType as PostType },
       relations: ['commentAttachments'],
       order: { createdAt: 'DESC' },
     });
 
     // Build a tree structure manually
-    const commentMap = new Map<number, any>();
-    const topLevelComments: any[] = [];
+    const commentMap = new Map<number, CommentTreeNode>();
+    const topLevelComments: CommentTreeNode[] = [];
 
     // First pass: create map of all comments
     allComments.forEach((comment) => {
@@ -306,6 +351,8 @@ export class CommentService {
       if (!comment.id) return;
 
       const commentWithChildren = commentMap.get(comment.id);
+      if (!commentWithChildren) return;
+
       if (comment.parentId) {
         const parent = commentMap.get(comment.parentId);
         if (parent) {
@@ -316,30 +363,21 @@ export class CommentService {
       }
     });
 
-    // Enrich each comment with user data
-    for (const comment of topLevelComments) {
-      await this.enrichCommentWithUserData(comment);
-    }
-
     return topLevelComments;
   }
 
-  async findByParent(parentId: number) {
-    const comments = await this.entityManager.find(Comment, {
+  async findByParent(parentId: number): Promise<Comment[]> {
+    return await this.entityManager.find(Comment, {
       where: { parentId },
       relations: ['childComments', 'commentAttachments'],
       order: { createdAt: 'DESC' },
     });
-
-    // Enrich each comment with user data
-    for (const comment of comments) {
-      await this.enrichCommentWithUserData(comment);
-    }
-
-    return comments;
   }
 
-  async delete(id: number, authUser: any) {
+  async delete(
+    id: number,
+    authUser: AuthenticatedUserPayload,
+  ): Promise<{ message: string; id: number }> {
     const comment = await this.entityManager.findOne(Comment, {
       where: { id },
       relations: ['childComments', 'commentAttachments'],
@@ -394,5 +432,41 @@ export class CommentService {
         return { message: 'Comment deleted', id };
       },
     );
+  }
+
+  @OnEvent(USER_PROFILE_UPDATED_EVENT, { async: true })
+  async handleUserProfileUpdated(
+    payload: UserProfileUpdatedEventPayload,
+  ): Promise<void> {
+    try {
+      const username =
+        `${payload.firstName ?? ''} ${payload.lastName ?? ''}`.trim();
+
+      const updateFields: Partial<Pick<Comment, 'username' | 'profilePicture'>> =
+        {};
+
+      if (username) {
+        updateFields.username = username;
+      }
+      if (payload.profilePicture !== undefined) {
+        updateFields.profilePicture = payload.profilePicture;
+      }
+
+      if (Object.keys(updateFields).length === 0) {
+        return;
+      }
+
+      await this.entityManager
+        .createQueryBuilder()
+        .update(Comment)
+        .set(updateFields)
+        .where('"userId" = :userId', { userId: payload.userId })
+        .execute();
+    } catch (error) {
+      this.logger.error(
+        `Failed to sync user profile update to comments for userId=${payload.userId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 }

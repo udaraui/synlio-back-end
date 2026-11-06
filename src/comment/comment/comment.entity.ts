@@ -34,6 +34,19 @@ export class Comment extends BaseEntity {
   @Column({ type: 'enum', enum: PostType, nullable: false })
   postType: PostType;
 
+  @Index('IDX_comment_userId')
+  @Column({ type: 'integer', nullable: false })
+  userId: number;
+
+  @Column({ type: 'varchar', nullable: false })
+  userEmail: string;
+
+  @Column({ type: 'varchar', nullable: false })
+  username: string;
+
+  @Column({ type: 'text', nullable: true })
+  profilePicture: string | null;
+
   @OneToMany(() => CommentAttachment, (attachment) => attachment.comment)
   commentAttachments: CommentAttachment[];
 }

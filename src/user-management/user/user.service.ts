@@ -470,6 +470,12 @@ export class UserService {
       }).catch((err) =>
         console.error('[UserService] propagateUserProfileUpdate failed:', err),
       );
+      this.eventEmitter.emit(USER_PROFILE_UPDATED_EVENT, {
+        userId: savedUser.id as number,
+        firstName: existingUser.first_name,
+        lastName: existingUser.last_name,
+        ...(profilePicChanged ? { profilePicture: nextProfilePicUrl } : {}),
+      } satisfies UserProfileUpdatedEventPayload);
     });
 
     // Return the user with all relations loaded immediately
