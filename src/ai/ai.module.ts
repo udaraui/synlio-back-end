@@ -4,11 +4,14 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { TicketEntityResolverService } from './resolver/ticket-entity-resolver.service';
 import { TicketMutationExecutorService } from './executor/ticket-mutation-executor.service';
+import { TaskEntityResolverService } from './resolver/task-entity-resolver.service';
+import { TaskMutationExecutorService } from './executor/task-mutation-executor.service';
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuthModule } from '../auth/auth.module';
 import { RedisModule } from '../redis/redis.module';
 import { AiAuditLog } from './ai-audit-log/ai-audit-log.entity';
 import { TicketManagementModule } from '../ticket-management/ticket-management.module';
+import { TaskManagementModule } from '../task-management/task-management.module';
 
 @Module({
   imports: [
@@ -17,17 +20,22 @@ import { TicketManagementModule } from '../ticket-management/ticket-management.m
     AuthModule,
     RedisModule,
     forwardRef(() => TicketManagementModule),
+    forwardRef(() => TaskManagementModule),
   ],
   controllers: [AiController],
   providers: [
     AiService,
     TicketEntityResolverService,
     TicketMutationExecutorService,
+    TaskEntityResolverService,
+    TaskMutationExecutorService,
   ],
   exports: [
     AiService,
     TicketEntityResolverService,
     TicketMutationExecutorService,
+    TaskEntityResolverService,
+    TaskMutationExecutorService,
   ],
 })
 export class AiModule { }

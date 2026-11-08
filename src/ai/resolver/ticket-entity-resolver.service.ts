@@ -19,6 +19,7 @@ export class TicketEntityResolverService {
     companyId: number,
     allowedSpaceIds: number[] = [],
     currentUser?: any,
+    context?: any,
   ): Promise<ResolutionResult> {
     if (!draftOrDrafts || typeof draftOrDrafts !== 'object') {
       return { resolvedDraft: draftOrDrafts, warnings: [] };
@@ -28,7 +29,7 @@ export class TicketEntityResolverService {
       const resolvedList: any[] = [];
       const allWarnings: string[] = [];
       for (const d of draftOrDrafts) {
-        const res = await this.resolveSingleDraft(d, companyId, allowedSpaceIds, currentUser);
+        const res = await this.resolveSingleDraft(d, companyId, allowedSpaceIds, currentUser, context);
         resolvedList.push({
           ...res.resolvedDraft,
           warnings: res.warnings,
@@ -42,7 +43,7 @@ export class TicketEntityResolverService {
       return { resolvedDraft: resolvedList, warnings: allWarnings };
     }
 
-    return this.resolveSingleDraft(draftOrDrafts, companyId, allowedSpaceIds, currentUser);
+    return this.resolveSingleDraft(draftOrDrafts, companyId, allowedSpaceIds, currentUser, context);
   }
 
   private async resolveSingleDraft(
@@ -50,6 +51,7 @@ export class TicketEntityResolverService {
     companyId: number,
     allowedSpaceIds: number[] = [],
     currentUser?: any,
+    context?: any,
   ): Promise<ResolutionResult> {
     if (!draft || typeof draft !== 'object') {
       return { resolvedDraft: draft, warnings: [] };
@@ -123,6 +125,19 @@ export class TicketEntityResolverService {
     }
 
     // 1. Resolve Ticket Space
+    if (!resolved.ticketSpaceId && context) {
+      const ctxSpaceId = context.ticketSpaceId || context.ticket_space_id || context.spaceId;
+      if (ctxSpaceId && ctxSpaceId !== 'none') {
+        resolved.ticketSpaceId = Number(ctxSpaceId);
+      }
+    }
+    if (!resolved.ticketSpaceName && context) {
+      const ctxSpaceName = context.ticketSpaceName || context.ticket_space_name || context.spaceName;
+      if (ctxSpaceName && ctxSpaceName !== 'none') {
+        resolved.ticketSpaceName = ctxSpaceName;
+      }
+    }
+
     let resolvedSpaceId = resolved.ticketSpaceId ? Number(resolved.ticketSpaceId) : null;
     if (!resolvedSpaceId && resolved.ticketSpaceName && allowedSpaceIds.length > 0) {
       const targetName = resolved.ticketSpaceName.trim().toLowerCase();
@@ -146,6 +161,27 @@ export class TicketEntityResolverService {
         resolvedSpaceId = resolved.ticketSpaceId;
       } else {
         warnings.push(`Could not find a ticket space matching "${resolved.ticketSpaceName}". Please select one.`);
+      }
+    }
+
+    // Fallback: If only 1 allowed ticket space exists, default to it
+    if (!resolvedSpaceId && allowedSpaceIds.length === 1) {
+      resolvedSpaceId = Number(allowedSpaceIds[0]);
+      resolved.ticketSpaceId = resolvedSpaceId;
+    }
+
+    // If resolvedSpaceId is known but ticketSpaceName is missing, fetch name from database
+    if (resolvedSpaceId && !resolved.ticketSpaceName) {
+      try {
+        const [spaceRow] = await this.entityManager.query(
+          `SELECT "name" FROM ticket_space WHERE "id" = $1`,
+          [resolvedSpaceId]
+        );
+        if (spaceRow?.name) {
+          resolved.ticketSpaceName = spaceRow.name;
+        }
+      } catch (err) {
+        // non-blocking
       }
     }
 

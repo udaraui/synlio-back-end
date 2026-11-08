@@ -5,7 +5,34 @@ import { RedisService } from '../redis/redis.service';
 import { getOrBuildVisibilityCache } from '../task-management/guards/visibility-cache.util';
 import { TicketEntityResolverService } from './resolver/ticket-entity-resolver.service';
 import { TicketMutationExecutorService } from './executor/ticket-mutation-executor.service';
+import { TaskEntityResolverService } from './resolver/task-entity-resolver.service';
+import { TaskMutationExecutorService } from './executor/task-mutation-executor.service';
 import { Transform } from 'stream';
+
+export function isTicketCode(code: string): boolean {
+  if (!code || typeof code !== 'string') return false;
+  return /^[A-Za-z0-9]+-\d+$/i.test(code.trim());
+}
+
+export function isTaskCode(code: string): boolean {
+  if (!code || typeof code !== 'string') return false;
+  return /^[A-Za-z0-9]+-[A-Za-z]+/i.test(code.trim());
+}
+
+export function extractEntityCodes(text: string): { ticketCodes: string[]; taskCodes: string[] } {
+  if (!text || typeof text !== 'string') return { ticketCodes: [], taskCodes: [] };
+  const allCodes = text.match(/\b[A-Za-z0-9]+-[A-Za-z0-9_-]+\b/g) || [];
+  const ticketCodes: string[] = [];
+  const taskCodes: string[] = [];
+  for (const c of allCodes) {
+    if (isTicketCode(c)) {
+      if (!ticketCodes.includes(c.toUpperCase())) ticketCodes.push(c.toUpperCase());
+    } else if (isTaskCode(c)) {
+      if (!taskCodes.includes(c.toUpperCase())) taskCodes.push(c.toUpperCase());
+    }
+  }
+  return { ticketCodes, taskCodes };
+}
 
 @Injectable()
 export class AiService {
@@ -14,6 +41,8 @@ export class AiService {
     private readonly redisService: RedisService,
     private readonly entityResolverService: TicketEntityResolverService,
     private readonly mutationExecutorService: TicketMutationExecutorService,
+    private readonly taskEntityResolverService: TaskEntityResolverService,
+    private readonly taskMutationExecutorService: TaskMutationExecutorService,
   ) {}
 
   private readonly MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -127,6 +156,7 @@ export class AiService {
       // 2. Resolve accessible task spaces and guest root task restrictions
       const allowedTaskSpaceIds: number[] = [];
       const rootTaskRestrictions: Record<string, number[]> = {};
+      let allowedTaskSpaces: Array<{ id: number; name: string; prefix?: string }> = [];
 
       if (user?.email) {
         try {
@@ -145,6 +175,20 @@ export class AiService {
               }
             }
           }
+
+          if (allowedTaskSpaceIds.length > 0) {
+            const taskSpaces = await this.entityManager.query(
+              `SELECT "id", "name", "prefix" 
+               FROM tm_task_space 
+               WHERE "companyId" = $1 AND "id" = ANY($2::int[])`,
+              [companyId, allowedTaskSpaceIds]
+            );
+            allowedTaskSpaces = taskSpaces.map((s: any) => ({
+              id: Number(s.id),
+              name: s.name,
+              prefix: s.prefix,
+            }));
+          }
         } catch (err) {
           console.error('Error fetching task visibility cache in AiService:', err);
         }
@@ -155,6 +199,32 @@ export class AiService {
       const companyPriv = userPrivs.find((p: any) => Number(p.companyId) === Number(companyId));
       const privilegeIds: number[] = companyPriv?.privilegeIds || [];
       const canCreateTicket = privilegeIds.includes(103) || privilegeIds.length === 0 || !user?.privileges;
+
+      const { ticketCodes: msgTicketCodes, taskCodes: msgTaskCodes } = extractEntityCodes(message || '');
+
+      let isTaskDomain = false;
+      if (agent === 'ticket_analytics') {
+        // Ticket Analyst authority: NEVER treat as task domain unless user explicitly specified a task code
+        isTaskDomain = msgTaskCodes.length > 0 && msgTicketCodes.length === 0;
+      } else if (agent === 'project_analytics') {
+        // Project Analyst authority: NEVER treat as ticket domain unless user explicitly specified a ticket code
+        isTaskDomain = !(msgTicketCodes.length > 0 && msgTaskCodes.length === 0);
+      } else {
+        // General or default agent
+        if (msgTaskCodes.length > 0 && msgTicketCodes.length === 0) {
+          isTaskDomain = true;
+        } else if (msgTicketCodes.length > 0 && msgTaskCodes.length === 0) {
+          isTaskDomain = false;
+        } else {
+          isTaskDomain =
+            context?.spaceType === 'task' ||
+            context?.entityType === 'task' ||
+            !!context?.taskSpaceId ||
+            (Array.isArray(pendingDraft)
+              ? pendingDraft.some((d: any) => d?.entityType === 'task' || d?.parentTaskId || d?.parentTaskName)
+              : (pendingDraft?.entityType === 'task' || pendingDraft?.parentTaskId || pendingDraft?.parentTaskName));
+        }
+      }
 
       // 4. Prepare payload for Python LangGraph backend
       const payload = {
@@ -174,7 +244,9 @@ export class AiService {
         scope: {
           allowed_ticket_space_ids: allowedTicketSpaceIds,
           allowed_task_space_ids: allowedTaskSpaceIds,
-          allowed_spaces: allowedSpaces,
+          allowed_spaces: isTaskDomain && allowedTaskSpaces.length > 0 ? allowedTaskSpaces : allowedSpaces,
+          allowed_ticket_spaces: allowedSpaces,
+          allowed_task_spaces: allowedTaskSpaces,
           root_task_restrictions: rootTaskRestrictions,
           can_create_ticket: canCreateTicket,
         },
@@ -192,6 +264,8 @@ export class AiService {
       // 6. Transparent Stream Transform with Entity Resolution and Mutation Execution
       const entityResolver = this.entityResolverService;
       const mutationExecutor = this.mutationExecutorService;
+      const taskEntityResolver = this.taskEntityResolverService;
+      const taskMutationExecutor = this.taskMutationExecutorService;
       let buffer = '';
 
       const transformStream = new Transform({
@@ -214,8 +288,98 @@ export class AiService {
             }
 
             try {
-              const targets = parsed.targets || [];
+              const rawTargets: any[] = parsed.targets || [];
+              const targets: string[] = rawTargets.map((t: any) => String(t).trim());
+              const hasTaskTargets = targets.some((t) => isTaskCode(t));
+              const hasTicketTargets = targets.some((t) => isTicketCode(t));
 
+              let isTaskMutation = false;
+              if (hasTaskTargets && !hasTicketTargets) {
+                isTaskMutation = true;
+              } else if (hasTicketTargets && !hasTaskTargets) {
+                isTaskMutation = false;
+              } else if (agent === 'ticket_analytics') {
+                isTaskMutation = false;
+              } else if (agent === 'project_analytics') {
+                isTaskMutation = true;
+              } else {
+                isTaskMutation = parsed.action === 'UPDATE_TASK' || parsed.entityType === 'task';
+              }
+
+              if (isTaskMutation) {
+                // Task Mutation Logic
+                if (targets.length === 0 || parsed.status === 'NEEDS_INPUT') {
+                  const targetSpaceId = Number(
+                    context?.task_space_id ||
+                    context?.taskSpaceId ||
+                    (allowedTaskSpaceIds && allowedTaskSpaceIds[0]) ||
+                    0
+                  );
+
+                  const candidates = await taskMutationExecutor.findCandidateTasks(
+                    parsed,
+                    companyId,
+                    user,
+                    targetSpaceId,
+                  );
+
+                  const optionsPayload = {
+                    action: 'UPDATE_TASK',
+                    entityType: 'task',
+                    status: 'NEEDS_INPUT',
+                    summary: candidates.summary,
+                    changes: parsed.changes || {},
+                    options: candidates.options,
+                    candidateTasks: candidates.candidateTasks,
+                    needs: [
+                      {
+                        field: 'targetTask',
+                        label: 'Select Task',
+                        options: candidates.options.map((o) => ({
+                          id: o.id,
+                          name: o.actionText,
+                          label: o.label,
+                        })),
+                      },
+                    ],
+                  };
+
+                  this.push(`__FINAL__${beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
+                  buffer = '';
+                  return callback();
+                }
+
+                // Explicit targets provided -> prepare task mutation draft
+                const mutationDraft = await taskMutationExecutor.prepareTaskMutationDraft(
+                  parsed,
+                  companyId,
+                  user,
+                );
+
+                if (mutationDraft.status === 'REFUSED') {
+                  this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                  buffer = '';
+                  return callback();
+                }
+
+                if (mutationDraft.drafts.length === 0) {
+                  this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                  buffer = '';
+                  return callback();
+                }
+
+                let displaySummary = beforeMarker.trim();
+                if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
+                  const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
+                  displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
+                }
+
+                this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(mutationDraft)}`);
+                buffer = '';
+                return callback();
+              }
+
+              // Ticket Mutation Logic
               // If no explicit targets were specified, resolve candidate tickets and return options
               if (targets.length === 0 || parsed.status === 'NEEDS_INPUT') {
                 const requestedSpaceId = Number(
@@ -287,7 +451,7 @@ export class AiService {
               buffer = '';
               return callback();
             } catch (err: any) {
-              console.error('Error in ticket mutation processing:', err);
+              console.error('Error in mutation processing:', err);
               this.push(`__FINAL__I encountered an issue preparing the update draft: ${err.message || 'Please try again.'}\n\n`);
               buffer = '';
               return callback();
@@ -302,15 +466,114 @@ export class AiService {
 
             try {
               const parsed = JSON.parse(jsonPart.trim());
-              const targetDrafts = parsed.drafts && Array.isArray(parsed.drafts) && parsed.drafts.length > 0
+              const parsedDrafts = Array.isArray(parsed.drafts)
+                ? parsed.drafts
+                : (parsed.draft ? [parsed.draft] : (Array.isArray(parsed) ? parsed : [parsed]));
+
+              let isTaskDraft = false;
+              if (agent === 'ticket_analytics') {
+                // Strictly ticket domain unless user explicitly targeted a task code
+                isTaskDraft = msgTaskCodes.length > 0 && msgTicketCodes.length === 0;
+              } else if (agent === 'project_analytics') {
+                // Strictly task domain unless user explicitly targeted a ticket code
+                isTaskDraft = !(msgTicketCodes.length > 0 && msgTaskCodes.length === 0);
+              } else {
+                isTaskDraft =
+                  parsed.action === 'CREATE_TASK' ||
+                  parsed.entityType === 'task' ||
+                  parsedDrafts.some((d: any) => d?.entityType === 'task' || d?.parentTaskId || d?.parentTaskName);
+              }
+
+              if (isTaskDraft) {
+                const targetDrafts = parsed.drafts && Array.isArray(parsed.drafts) && parsed.drafts.length > 0
+                  ? parsed.drafts
+                  : (parsed.draft || parsed);
+
+                const { resolvedDraft, warnings, needs, summary } = await taskEntityResolver.resolveDraftEntities(
+                  targetDrafts,
+                  companyId,
+                  allowedTaskSpaceIds,
+                  user,
+                  context,
+                );
+
+                const isArray = Array.isArray(resolvedDraft);
+                const allWarnings = [...(parsed.warnings || []), ...warnings];
+                const resolvedPayload = {
+                  action: 'CREATE_TASK',
+                  entityType: 'task',
+                  status: (needs && needs.length > 0) ? 'NEEDS_INPUT' : (parsed.status || 'READY'),
+                  summary: summary || parsed.summary,
+                  draft: isArray ? resolvedDraft[0] : resolvedDraft,
+                  drafts: isArray ? resolvedDraft : (parsed.drafts || [resolvedDraft]),
+                  warnings: allWarnings,
+                  needs: needs && needs.length > 0 ? needs : (parsed.needs || []),
+                };
+
+                let displaySummary = summary || parsed.summary || beforeMarker.trim();
+                // Never show ticket text when creating tasks
+                if (displaySummary.toLowerCase().includes('ticket')) {
+                  displaySummary = summary || (isArray && resolvedDraft.length > 1
+                    ? `I've prepared ${resolvedDraft.length} tasks for you. Please review the details before proceeding.`
+                    : `I've prepared your task draft. Please review the details before proceeding.`);
+                }
+                const targetDraftsList = Array.isArray(resolvedDraft) ? resolvedDraft : [resolvedDraft];
+                const parentEntry = targetDraftsList.find((d: any) => d?.parentTaskCode || d?.parentTaskName);
+                if (parentEntry && !displaySummary.includes('Saving will update')) {
+                  const pCode = parentEntry.parentTaskCode || '';
+                  const pName = parentEntry.parentTaskName || '';
+                  const pLabel = pCode && pName ? `${pCode}: ${pName}` : pCode || pName;
+                  if (pLabel) {
+                    displaySummary = `${displaySummary.trim()} Saving will update ${pLabel}.`;
+                  }
+                }
+                if (allWarnings.length > 0) {
+                  const uniqueWarnings = Array.from(new Set(allWarnings));
+                  displaySummary += '\n\n' + uniqueWarnings.map((w) => `⚠️ ${w}`).join('\n');
+                }
+
+                this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(resolvedPayload)}`);
+                buffer = '';
+                return callback();
+              }
+
+              // Ticket Draft Logic
+              const rawTargetDrafts = parsed.drafts && Array.isArray(parsed.drafts) && parsed.drafts.length > 0
                 ? parsed.drafts
                 : (parsed.draft || parsed);
+
+              // Sanitize drafts to clean ticket entities (stripping task-specific hierarchy fields)
+              const sanitizeTicketItem = (d: any) => {
+                if (!d || typeof d !== 'object') return d;
+                const clean = { ...d };
+                clean.entityType = 'ticket';
+                if (clean.taskSpaceName && !clean.ticketSpaceName) {
+                  clean.ticketSpaceName = clean.taskSpaceName;
+                }
+                if (clean.taskSpaceId && !clean.ticketSpaceId) {
+                  clean.ticketSpaceId = clean.taskSpaceId;
+                }
+                delete clean.taskSpaceName;
+                delete clean.taskSpaceId;
+                delete clean.parentTaskId;
+                delete clean.parentTaskName;
+                delete clean.parentTaskCode;
+                delete clean.hierarchyLevelSequence;
+                delete clean.hierarchyLevelName;
+                delete clean.isCreateNewLevel1;
+                return clean;
+              };
+
+              const targetDrafts = Array.isArray(rawTargetDrafts)
+                ? rawTargetDrafts.map(sanitizeTicketItem)
+                : sanitizeTicketItem(rawTargetDrafts);
 
               const { resolvedDraft, warnings } = await entityResolver.resolveDraftEntities(
                 targetDrafts,
                 companyId,
                 allowedTicketSpaceIds,
                 user,
+                context,
               );
 
               const isArray = Array.isArray(resolvedDraft);
