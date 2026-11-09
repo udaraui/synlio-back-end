@@ -51,7 +51,12 @@ export class TaskMutationExecutorService {
     companyId: number,
     authUser?: any,
   ): Promise<TaskMutationDraftResult> {
-    const targets = (mutationPayload.targets || []).map((t) => String(t).trim().toUpperCase());
+    const rawTargets = mutationPayload.targets || [];
+    const targets = rawTargets.map((t) => {
+      const s = String(t).trim();
+      return (s.includes(':') ? s.split(':')[0].trim() : s).toUpperCase();
+    });
+    const targetTitles = rawTargets.map((t) => String(t).trim().toLowerCase());
     const changes = mutationPayload.changes || {};
     const warnings: string[] = [];
 
@@ -79,18 +84,22 @@ export class TaskMutationExecutorService {
       };
     }
 
-    // Load tasks by code with tenancy filtering
+    // Load tasks by code or name with tenancy filtering
     const taskQuery = this.entityManager
       .createQueryBuilder(Task, 'task')
       .leftJoinAndSelect('task.taskSpace', 'taskSpace')
       .leftJoinAndSelect('task.assignee', 'assignee')
-      .where('UPPER(task.code) IN (:...targets)', { targets });
+      .leftJoinAndSelect('task.parentTask', 'parentTask')
+      .where('(UPPER(task.code) IN (:...targets) OR LOWER(task.name) IN (:...targetTitles))', {
+        targets,
+        targetTitles,
+      });
 
     if (companyId && companyId !== 0) {
       taskQuery.andWhere('task.companyId = :companyId', { companyId });
     }
 
-    const tasks = await taskQuery.getMany();
+    let tasks = await taskQuery.getMany();
 
     if (tasks.length === 0) {
       return {
@@ -101,6 +110,54 @@ export class TaskMutationExecutorService {
         drafts: [],
         warnings: [`Task(s) ${targets.join(', ')} not found.`],
       };
+    }
+
+    // Detect if the user wants to update the children / subtasks of the target tasks
+    const isChildrenScope =
+      (mutationPayload as any).targetScope === 'children' ||
+      (mutationPayload as any).includeChildren === true ||
+      (mutationPayload as any).childrenOnly === true ||
+      Boolean(
+        mutationPayload.summary &&
+          /\b(?:all\s+)?(?:child(?:ren)?|subtasks?|tasks?)\s+of\b/i.test(mutationPayload.summary),
+      );
+
+    if (isChildrenScope) {
+      const parentIds = tasks.map((t) => t.id);
+      const parentMap = new Map(tasks.map((t) => [t.id, t]));
+
+      const childQuery = this.entityManager
+        .createQueryBuilder(Task, 'task')
+        .leftJoinAndSelect('task.taskSpace', 'taskSpace')
+        .leftJoinAndSelect('task.assignee', 'assignee')
+        .leftJoinAndSelect('task.parentTask', 'parentTask')
+        .where('task.parentTaskId IN (:...parentIds)', { parentIds });
+
+      if (companyId && companyId !== 0) {
+        childQuery.andWhere('task.companyId = :companyId', { companyId });
+      }
+
+      const childTasks = await childQuery.getMany();
+
+      if (childTasks.length === 0) {
+        const parentCodes = tasks.map((t) => t.code).join(', ');
+        return {
+          action: 'UPDATE_TASK',
+          entityType: 'task',
+          status: 'NEEDS_INPUT',
+          summary: `Project ${parentCodes} currently does not have any child tasks to update.`,
+          drafts: [],
+          warnings: [`No child tasks found under ${parentCodes}.`],
+        };
+      }
+
+      childTasks.forEach((child) => {
+        if (child.parentTaskId && parentMap.has(child.parentTaskId)) {
+          child.parentTask = parentMap.get(child.parentTaskId)!;
+        }
+      });
+
+      tasks = childTasks;
     }
 
     const preparedDrafts: any[] = [];
@@ -201,6 +258,20 @@ export class TaskMutationExecutorService {
         taskSpaceId: task.taskSpaceId,
         taskSpaceName: task.taskSpaceName,
         taskSpacePrefix: task.taskSpacePrefix,
+        parentTaskId: task.parentTaskId || task.parentTask?.id,
+        parentTaskCode: task.parentTask?.code,
+        parentTaskName: task.parentTask?.name,
+        parentTaskStatusId: task.parentTask?.statusId,
+        parentTaskStatusName: task.parentTask?.statusName,
+        parentTaskStatusColor: task.parentTask?.statusColor,
+        parentTaskSeverityId: task.parentTask?.severityId,
+        parentTaskSeverityName: task.parentTask?.severityName,
+        parentTaskSeverityColor: task.parentTask?.severityColor,
+        parentTaskAssigneeId: task.parentTask?.assigneeId,
+        parentTaskAssigneeName: task.parentTask?.assigneeName,
+        parentTaskAssigneeProfilePicUrl: task.parentTask?.assigneeProfilePicUrl,
+        parentTaskStartDate: task.parentTask?.startDate,
+        parentTaskDueDate: task.parentTask?.dueDate,
         hierarchyLevelConfigId: task.hierarchyLevelConfigId,
         hierarchyLevelName: task.hierarchyLevelName,
         hierarchyLevelColor: task.hierarchyLevelColor,
@@ -240,8 +311,9 @@ export class TaskMutationExecutorService {
     }
 
     const taskLabels = preparedDrafts.map((d) => `**${d.code}**`).join(', ');
-    const displaySummary =
-      preparedDrafts.length === 1
+    const displaySummary = isChildrenScope
+      ? `I've prepared updates for all ${preparedDrafts.length} child tasks of ${targets.join(', ')} (${taskLabels}). Please review the proposed changes below.`
+      : preparedDrafts.length === 1
         ? `I've prepared the update for ${taskLabels}. Please review the proposed changes below.`
         : `I've prepared updates for ${preparedDrafts.length} tasks (${taskLabels}). Please review the proposed changes below.`;
 
@@ -282,6 +354,12 @@ export class TaskMutationExecutorService {
 
     if (filter.assignee) {
       qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
+    }
+
+    const query = filter.query || filter.title || filter.name || filter.search;
+    if (query) {
+      const q = String(query).trim().toLowerCase();
+      qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
     }
 
     const candidates = await qb.orderBy('task.id', 'DESC').take(10).getMany();

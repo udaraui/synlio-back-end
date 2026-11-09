@@ -526,7 +526,10 @@ export class TicketMutationExecutorService {
     const warnings: string[] = [];
 
     const draftPromises = targets.map(async (targetCode) => {
-      const codeClean = String(targetCode).trim();
+      let codeClean = String(targetCode).trim();
+      if (codeClean.includes(':')) {
+        codeClean = codeClean.split(':')[0].trim();
+      }
       if (!codeClean) return null;
 
       const ticket = await this.entityManager
@@ -538,7 +541,10 @@ export class TicketMutationExecutorService {
         .leftJoinAndSelect('ticket.queue', 'queue')
         .leftJoinAndSelect('ticket.assignee', 'assignee')
         .where('ticket.companyId = :companyId', { companyId })
-        .andWhere('UPPER(ticket.code) = UPPER(:code)', { code: codeClean })
+        .andWhere('(UPPER(ticket.code) = UPPER(:code) OR LOWER(ticket.name) = LOWER(:name))', {
+          code: codeClean,
+          name: String(targetCode).trim().toLowerCase(),
+        })
         .getOne();
 
       if (!ticket) {
@@ -830,6 +836,15 @@ export class TicketMutationExecutorService {
           assigneeLike: `%${targetUser}%`,
         });
       }
+    }
+
+    // 3. Filter by partial code or title if requested
+    const query = filter.query || filter.title || filter.name || filter.search;
+    if (query) {
+      const q = String(query).trim().toLowerCase();
+      qb.andWhere('(LOWER(ticket.code) LIKE :q OR LOWER(ticket.name) LIKE :q)', {
+        q: `%${q}%`,
+      });
     }
 
     qb.orderBy('ticket.id', 'DESC').take(15);
