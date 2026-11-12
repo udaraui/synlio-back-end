@@ -2,6 +2,102 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { TicketService } from '../../ticket-management/ticket/ticket.service';
+import { StatusBaseEnum } from '../../common/enum/status-base.enum';
+
+export function resolveSpaceStatus(
+  statuses: Array<{ id?: number | string; name?: string; color?: string; base?: StatusBaseEnum; isPrimaryBase?: boolean }>,
+  requestedStatus: string,
+): { id: number; name: string; color: string } | null {
+  if (!requestedStatus || !statuses || statuses.length === 0) return null;
+  const q = String(requestedStatus).trim().toLowerCase();
+
+  // Tier 1: Exact Name Match
+  const exact = statuses.find((s) => s.name?.trim().toLowerCase() === q);
+  if (exact && exact.id !== undefined) return { id: Number(exact.id), name: exact.name || '', color: exact.color || '#6366f1' };
+
+  // Tier 1b: Substring Match
+  const sub = statuses.find(
+    (s) => s.name && (s.name.toLowerCase().includes(q) || q.includes(s.name.toLowerCase())),
+  );
+  if (sub && sub.id !== undefined) return { id: Number(sub.id), name: sub.name || '', color: sub.color || '#6366f1' };
+
+  // Tier 2: Status Base Semantic Mapping
+  let targetBase: StatusBaseEnum | null = null;
+  if (/^(done|complete|completed|finish|finished|resolved|resolve|closed|close)$/i.test(q)) {
+    targetBase = StatusBaseEnum.FINISHED;
+  } else if (/^(in\s*progress|inprogress|processing|in\s*review|inreview|ongoing|underway)$/i.test(q)) {
+    targetBase = StatusBaseEnum.PROCESSING;
+  } else if (/^(to\s*do|todo|to\s*start|tostart|open|new|backlog|reopen)$/i.test(q)) {
+    targetBase = StatusBaseEnum.TOSTART;
+  }
+
+  if (targetBase) {
+    const baseMatches = statuses.filter((s) => s.base === targetBase);
+    if (baseMatches.length > 0) {
+      const semanticMatch = baseMatches.find(
+        (s) => s.name && (s.name.toLowerCase().includes(q) || q.includes(s.name.toLowerCase())),
+      );
+      const primary = baseMatches.find((s) => s.isPrimaryBase);
+      const chosen = semanticMatch || primary || baseMatches[0];
+      if (chosen && chosen.id !== undefined) {
+        return { id: Number(chosen.id), name: chosen.name || '', color: chosen.color || '#6366f1' };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fuzzy severity resolver with semantic tier mapping.
+ * Maps common severity terms to the closest available option in the space's severity config.
+ * Tier ordering (highest to lowest): Blocker → Critical → High → Medium → Low
+ * When exact/substring match fails, falls back to semantic tier proximity:
+ *   e.g. user says "critical" but space only has [Blocker, High, Medium, Low]
+ *        → returns "Blocker" (closest highest-tier match).
+ */
+function resolveSeverityFuzzy(
+  rows: Array<{ id: number; name: string }>,
+  requested: string,
+): { id: number; name: string } | null {
+  if (!rows || rows.length === 0 || !requested) return null;
+  const q = String(requested).trim().toLowerCase();
+
+  // Tier 1: Exact match
+  const exact = rows.find((s) => s.name.toLowerCase() === q);
+  if (exact) return exact;
+
+  // Tier 2: Substring match (bidirectional)
+  const sub = rows.find(
+    (s) => s.name.toLowerCase().includes(q) || q.includes(s.name.toLowerCase()),
+  );
+  if (sub) return sub;
+
+  // Tier 3: Semantic tier mapping — severity level equivalences
+  // Map the requested term to a tier index: blocker=0, critical=1, high=2, medium=3, low=4
+  const TIER_MAP: Record<string, number> = {
+    blocker: 0, blocking: 0, urgent: 0,
+    critical: 1,
+    high: 2, major: 2,
+    medium: 3, moderate: 3, normal: 3,
+    low: 4, minor: 4, trivial: 4,
+  };
+  const requestedTier = TIER_MAP[q] ?? null;
+  if (requestedTier === null) return null;
+
+  // Assign tiers to available rows
+  const rowsWithTier = rows.map((s) => ({
+    ...s,
+    tier: TIER_MAP[s.name.toLowerCase()] ?? 99,
+  }));
+  // Sort by absolute distance from the requested tier
+  rowsWithTier.sort((a, b) => Math.abs(a.tier - requestedTier) - Math.abs(b.tier - requestedTier));
+  if (rowsWithTier.length > 0 && rowsWithTier[0].tier !== 99) {
+    return { id: rowsWithTier[0].id, name: rowsWithTier[0].name };
+  }
+
+  return null;
+}
 
 export interface TicketMutationResult {
   status: 'UPDATED' | 'FAILED';
@@ -178,20 +274,14 @@ export class TicketMutationExecutorService {
         // (a) Status Patch via dedicated patchTicketStatus
         const requestedStatus = itemChanges.status || itemChanges.statusName || (itemChanges.statusId ? String(itemChanges.statusId) : null);
         if (requestedStatus) {
-          const statusRows: Array<{ id: number; name: string }> =
+          const statusRows: Array<{ id: number; name: string; color?: string; base?: StatusBaseEnum; isPrimaryBase?: boolean }> =
             await this.entityManager.query(
-              `SELECT "id", "name" FROM ticket_space_status_config WHERE "ticketSpaceId" = $1`,
+              `SELECT "id", "name", "color", "base", "isPrimaryBase" FROM ticket_space_status_config WHERE "ticketSpaceId" = $1`,
               [spaceId],
             );
-          const targetStatus = String(requestedStatus).trim().toLowerCase();
           const matched =
             (itemChanges.statusId ? statusRows.find((s) => Number(s.id) === Number(itemChanges.statusId)) : null) ||
-            statusRows.find((s) => s.name.toLowerCase() === targetStatus) ||
-            statusRows.find(
-              (s) =>
-                s.name.toLowerCase().includes(targetStatus) ||
-                targetStatus.includes(s.name.toLowerCase()),
-            );
+            resolveSpaceStatus(statusRows, requestedStatus);
 
           if (matched) {
             await this.ticketService.patchTicketStatus(
@@ -216,14 +306,8 @@ export class TicketMutationExecutorService {
               `SELECT "id", "name" FROM ticket_space_severity_config WHERE "ticketSpaceId" = $1`,
               [spaceId],
             );
-          const targetSev = String(requestedSeverity).trim().toLowerCase();
-          const matched =
-            sevRows.find((s) => s.name.toLowerCase() === targetSev) ||
-            sevRows.find(
-              (s) =>
-                s.name.toLowerCase().includes(targetSev) ||
-                targetSev.includes(s.name.toLowerCase()),
-            );
+          // Use semantic fuzzy resolver so "critical" maps to "Blocker" when Critical doesn't exist
+          const matched = resolveSeverityFuzzy(sevRows, requestedSeverity);
 
           if (matched) {
             await this.ticketService.patchTicketSeverity(
@@ -563,18 +647,11 @@ export class TicketMutationExecutorService {
       let resolvedStatusName = ticket.status?.name || ticket.statusName;
       const requestedStatus = changes.status || changes.statusName;
       if (requestedStatus) {
-        const statusRows: Array<{ id: number; name: string }> = await this.entityManager.query(
-          `SELECT "id", "name" FROM ticket_space_status_config WHERE "ticketSpaceId" = $1`,
+        const statusRows: Array<{ id: number; name: string; color?: string; base?: StatusBaseEnum; isPrimaryBase?: boolean }> = await this.entityManager.query(
+          `SELECT "id", "name", "color", "base", "isPrimaryBase" FROM ticket_space_status_config WHERE "ticketSpaceId" = $1`,
           [spaceId],
         );
-        const targetStatus = String(requestedStatus).trim().toLowerCase();
-        const matched =
-          statusRows.find((s) => s.name.toLowerCase() === targetStatus) ||
-          statusRows.find(
-            (s) =>
-              s.name.toLowerCase().includes(targetStatus) ||
-              targetStatus.includes(s.name.toLowerCase()),
-          );
+        const matched = resolveSpaceStatus(statusRows, requestedStatus);
         if (matched) {
           resolvedStatusId = matched.id;
           resolvedStatusName = matched.name;
@@ -593,10 +670,7 @@ export class TicketMutationExecutorService {
           `SELECT "id", "name" FROM ticket_space_severity_config WHERE "ticketSpaceId" = $1`,
           [spaceId],
         );
-        const targetSev = String(requestedSeverity).trim().toLowerCase();
-        const matched =
-          severityRows.find((s) => s.name.toLowerCase() === targetSev) ||
-          severityRows.find((s) => s.name.toLowerCase().includes(targetSev));
+        const matched = resolveSeverityFuzzy(severityRows, requestedSeverity);
         if (matched) {
           resolvedSeverityId = matched.id;
           resolvedSeverityName = matched.name;
@@ -820,7 +894,25 @@ export class TicketMutationExecutorService {
       .where('ticket.companyId = :companyId', { companyId })
       .andWhere('ticket.ticketSpaceId = :spaceId', { spaceId });
 
-    // 2. Filter by Assignee if requested
+    // 2. Filter by status if requested
+    if (filter.status) {
+      const statusTerm = String(filter.status).trim().toLowerCase();
+      let baseTerm: string | null = null;
+      if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.TOSTART;
+      else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.PROCESSING;
+      else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.FINISHED;
+
+      if (baseTerm) {
+        qb.andWhere('(LOWER(ticket.statusName) LIKE :status OR ticket.statusBase = :baseTerm)', {
+          status: `%${statusTerm}%`,
+          baseTerm,
+        });
+      } else {
+        qb.andWhere('LOWER(ticket.statusName) LIKE :status', { status: `%${statusTerm}%` });
+      }
+    }
+
+    // 3. Filter by Assignee if requested
     const requestedAssignee = filter.assignee;
     if (requestedAssignee) {
       const targetUser = String(requestedAssignee).trim().toLowerCase();

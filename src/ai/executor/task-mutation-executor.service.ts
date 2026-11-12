@@ -7,6 +7,51 @@ import { TaskSpaceSeverityConfig } from '../../task-management/task-space-severi
 import { Resource } from '../../resource-management/resource/resource.entity';
 import { TmTaskService } from '../../task-management/task/task.service';
 import { UpdateTaskDto } from '../../task-management/task/dto/task.dto';
+import { StatusBaseEnum } from '../../common/enum/status-base.enum';
+
+export function resolveSpaceStatus(
+  statuses: Array<{ id?: number | string; name?: string; color?: string; base?: StatusBaseEnum; isPrimaryBase?: boolean }>,
+  requestedStatus: string,
+): { id: number; name: string; color: string } | null {
+  if (!requestedStatus || !statuses || statuses.length === 0) return null;
+  const q = String(requestedStatus).trim().toLowerCase();
+
+  // Tier 1: Exact Name Match
+  const exact = statuses.find((s) => s.name?.trim().toLowerCase() === q);
+  if (exact && exact.id !== undefined) return { id: Number(exact.id), name: exact.name || '', color: exact.color || '#6366f1' };
+
+  // Tier 1b: Substring Match
+  const sub = statuses.find(
+    (s) => s.name && (s.name.toLowerCase().includes(q) || q.includes(s.name.toLowerCase())),
+  );
+  if (sub && sub.id !== undefined) return { id: Number(sub.id), name: sub.name || '', color: sub.color || '#6366f1' };
+
+  // Tier 2: Status Base Semantic Mapping
+  let targetBase: StatusBaseEnum | null = null;
+  if (/^(done|complete|completed|finish|finished|resolved|resolve|closed|close)$/i.test(q)) {
+    targetBase = StatusBaseEnum.FINISHED;
+  } else if (/^(in\s*progress|inprogress|processing|in\s*review|inreview|ongoing|underway)$/i.test(q)) {
+    targetBase = StatusBaseEnum.PROCESSING;
+  } else if (/^(to\s*do|todo|to\s*start|tostart|open|new|backlog|reopen)$/i.test(q)) {
+    targetBase = StatusBaseEnum.TOSTART;
+  }
+
+  if (targetBase) {
+    const baseMatches = statuses.filter((s) => s.base === targetBase);
+    if (baseMatches.length > 0) {
+      const semanticMatch = baseMatches.find(
+        (s) => s.name && (s.name.toLowerCase().includes(q) || q.includes(s.name.toLowerCase())),
+      );
+      const primary = baseMatches.find((s) => s.isPrimaryBase);
+      const chosen = semanticMatch || primary || baseMatches[0];
+      if (chosen && chosen.id !== undefined) {
+        return { id: Number(chosen.id), name: chosen.name || '', color: chosen.color || '#6366f1' };
+      }
+    }
+  }
+
+  return null;
+}
 
 export interface TaskMutationDraftResult {
   action: string;
@@ -174,8 +219,7 @@ export class TaskMutationExecutorService {
         const statuses = await this.entityManager.find(TaskSpaceStatusConfig, {
           where: { taskSpaceId: spaceId },
         });
-        const q = String(changes.statusName).trim().toLowerCase();
-        const matched = statuses.find((s) => s.name?.toLowerCase() === q);
+        const matched = resolveSpaceStatus(statuses, changes.statusName);
         if (matched) {
           resolvedStatusId = matched.id;
           resolvedStatusName = matched.name;
@@ -215,23 +259,75 @@ export class TaskMutationExecutorService {
         const rawAssignee = String(changes.assigneeName).trim();
         const spaceWithRes = await this.entityManager.findOne(TaskSpace, {
           where: { id: spaceId },
-          relations: ['resources'],
+          relations: ['resources', 'owners'],
         });
-        const assignedRes = spaceWithRes?.resources || [];
+        const assignedRes: Resource[] = [...(spaceWithRes?.resources || [])];
 
+        if (spaceWithRes?.owners && spaceWithRes.owners.length > 0) {
+          const ownerEmails = spaceWithRes.owners.map((o) => o.email).filter(Boolean);
+          if (ownerEmails.length > 0) {
+            const ownerResources = await this.entityManager
+              .createQueryBuilder(Resource, 'resource')
+              .where('LOWER(resource.email) IN (:...ownerEmails)', {
+                ownerEmails: ownerEmails.map((e) => e.toLowerCase()),
+              })
+              .getMany();
+
+            for (const or of ownerResources) {
+              if (!assignedRes.some((ar) => ar.id === or.id)) {
+                assignedRes.push(or);
+              }
+            }
+          }
+        }
+
+        const cleanStr = (s?: string) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const q = cleanStr(rawAssignee);
         let matchedRes: Resource | undefined;
-        if (rawAssignee.toLowerCase() === 'me' && authUser) {
-          matchedRes = assignedRes.find(
-            (r) =>
-              r.email?.toLowerCase() === authUser.email?.toLowerCase() ||
-              `${r.first_name} ${r.last_name}`.toLowerCase() === authUser.name?.toLowerCase(),
-          );
+
+        if (q === 'me' && authUser) {
+          const authEmail = cleanStr(authUser.email);
+          const authName = cleanStr(authUser.name);
+          matchedRes = assignedRes.find((r) => {
+            const rEmail = cleanStr(r.email);
+            const rFull = cleanStr(`${r.first_name || ''} ${r.last_name || ''}`);
+            return (authEmail && rEmail === authEmail) || (authName && rFull === authName);
+          });
         } else {
           matchedRes = assignedRes.find((r) => {
-            const fullName = `${r.first_name} ${r.last_name}`.toLowerCase();
-            const q = rawAssignee.toLowerCase();
-            return fullName.includes(q) || r.first_name?.toLowerCase() === q || r.last_name?.toLowerCase() === q;
+            const fullName = cleanStr(`${r.first_name || ''} ${r.last_name || ''}`);
+            const fName = cleanStr(r.first_name);
+            const lName = cleanStr(r.last_name);
+            const email = cleanStr(r.email);
+            return (
+              fullName === q ||
+              fullName.includes(q) ||
+              q.includes(fullName) ||
+              fName === q ||
+              lName === q ||
+              (email && email === q)
+            );
           });
+
+          if (!matchedRes) {
+            matchedRes = assignedRes.find((r) => {
+              const fName = cleanStr(r.first_name);
+              const lName = cleanStr(r.last_name);
+              if (fName.length >= 3 && q.length >= 3) {
+                if (fName.startsWith(q) || q.startsWith(fName)) return true;
+                let diff = 0;
+                const minLen = Math.min(fName.length, q.length);
+                for (let i = 0; i < minLen; i++) {
+                  if (fName[i] !== q[i]) diff++;
+                }
+                if (diff <= 1 && Math.abs(fName.length - q.length) <= 1) return true;
+              }
+              if (lName.length >= 3 && q.length >= 3) {
+                if (lName.startsWith(q) || q.startsWith(lName)) return true;
+              }
+              return false;
+            });
+          }
         }
 
         if (matchedRes) {
@@ -349,22 +445,77 @@ export class TaskMutationExecutorService {
     }
 
     if (filter.status) {
-      qb.andWhere('LOWER(task.statusName) = LOWER(:status)', { status: filter.status });
+      const statusTerm = String(filter.status).trim().toLowerCase();
+      let baseTerm: string | null = null;
+      if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.TOSTART;
+      else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.PROCESSING;
+      else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.FINISHED;
+
+      if (baseTerm) {
+        qb.andWhere('(LOWER(task.statusName) = :status OR task.statusBase = :baseTerm)', {
+          status: statusTerm,
+          baseTerm,
+        });
+      } else {
+        qb.andWhere('LOWER(task.statusName) = :status', { status: statusTerm });
+      }
     }
 
     if (filter.assignee) {
       qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
     }
 
+    // Filter by severity/priority if requested (e.g. "all low-priority tasks")
+    // The filter.severity is populated from the user's source-filter criterion (not the target change value)
+    const severityFilter = filter.severity || filter.severityName || filter.priority;
+    if (severityFilter) {
+      const sev = String(severityFilter).trim().toLowerCase();
+      qb.andWhere('LOWER(task.severityName) = :severity', { severity: sev });
+    }
+
     const query = filter.query || filter.title || filter.name || filter.search;
     if (query) {
       const q = String(query).trim().toLowerCase();
+      // Search across ALL hierarchy levels (not just root tasks) for title + code
       qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
     }
 
     const candidates = await qb.orderBy('task.id', 'DESC').take(10).getMany();
 
-    const options = candidates.map((t) => ({
+    // Confidence guard: when searching by title, filter out candidates with low title similarity
+    // to avoid returning completely unrelated tasks (e.g. "Untitled Task" for "Ticker implementation")
+    let filteredCandidates = candidates;
+    if (query && candidates.length > 0) {
+      const q = String(query).trim().toLowerCase();
+      const scored = candidates.map((t) => {
+        const name = (t.name || '').toLowerCase();
+        const code = (t.code || '').toLowerCase();
+        // Simple token overlap score: ratio of query words found in name
+        const queryTokens = q.split(/\s+/).filter((w) => w.length > 2);
+        const nameTokens = name.split(/\s+/);
+        const overlap = queryTokens.filter((w) => nameTokens.some((n) => n.includes(w) || w.includes(n))).length;
+        const score = queryTokens.length > 0 ? overlap / queryTokens.length : 0;
+        const exactCodeMatch = code === q || code.includes(q);
+        return { task: t, score, exactCodeMatch };
+      });
+
+      // Keep candidates with meaningful title overlap OR exact code match
+      // If NO candidate passes the threshold, return all (to avoid empty result)
+      const goodMatches = scored.filter((s) => s.exactCodeMatch || s.score >= 0.4);
+      if (goodMatches.length > 0) {
+        filteredCandidates = goodMatches.map((s) => s.task);
+      }
+      // Sort best matches first
+      filteredCandidates = filteredCandidates.sort((a, b) => {
+        const aName = (a.name || '').toLowerCase();
+        const bName = (b.name || '').toLowerCase();
+        const aScore = scored.find((s) => s.task.id === a.id)?.score ?? 0;
+        const bScore = scored.find((s) => s.task.id === b.id)?.score ?? 0;
+        return bScore - aScore;
+      });
+    }
+
+    const options = filteredCandidates.map((t) => ({
       id: t.id,
       code: t.code,
       name: t.name,
@@ -372,24 +523,24 @@ export class TaskMutationExecutorService {
       actionText: `Update ${t.code}`,
     }));
 
-    if (candidates.length > 1) {
+    if (filteredCandidates.length > 1) {
       options.unshift({
         id: 0,
         code: 'ALL',
-        name: `Move all (${candidates.length})`,
-        label: `Move all matching (${candidates.length})`,
-        actionText: `Update all ${candidates.length} tasks`,
+        name: `Move all (${filteredCandidates.length})`,
+        label: `Move all matching (${filteredCandidates.length})`,
+        actionText: `Update all ${filteredCandidates.length} tasks`,
       });
     }
 
     const summary =
-      candidates.length > 0
-        ? `Found ${candidates.length} matching task(s). Which one would you like to update?`
+      filteredCandidates.length > 0
+        ? `Found ${filteredCandidates.length} matching task(s). Which one would you like to update?`
         : `No matching tasks found for the requested criteria.`;
 
     return {
       summary,
-      candidateTasks: candidates,
+      candidateTasks: filteredCandidates,
       options,
     };
   }

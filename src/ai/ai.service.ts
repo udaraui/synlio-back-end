@@ -16,11 +16,16 @@ export function isTicketCode(code: string): boolean {
 
 export function isTaskCode(code: string): boolean {
   if (!code || typeof code !== 'string') return false;
-  return /^[A-Za-z0-9]+-[A-Za-z]+/i.test(code.trim());
+  // Task codes must end with at least one digit after the alpha level prefix (e.g. PTS-P2, TSU-P10, PRJ-T3-S1)
+  // This prevents hyphenated English words like "MEDIUM-priority", "MEDIMU-priority" from matching
+  return /^[A-Za-z0-9]+-[A-Za-z]+\d+/i.test(code.trim());
 }
 
 export function extractEntityCodes(text: string): { ticketCodes: string[]; taskCodes: string[] } {
   if (!text || typeof text !== 'string') return { ticketCodes: [], taskCodes: [] };
+  // Only extract codes that look like real entity codes, not hyphenated English words
+  // Ticket codes: PREFIX-DIGITS only (e.g. PTS-23, SSD-5)
+  // Task codes: PREFIX-LETTERSDIGITS (e.g. PTS-P2, PRJ-T3-S1) — alpha level prefix MUST be followed by digit
   const allCodes = text.match(/\b[A-Za-z0-9]+-[A-Za-z0-9_-]+\b/g) || [];
   const ticketCodes: string[] = [];
   const taskCodes: string[] = [];
@@ -45,10 +50,12 @@ export class AiService {
     private readonly taskMutationExecutorService: TaskMutationExecutorService,
   ) {}
 
+  private readonly activeAbortControllers = new Map<string, AbortController>();
+
   private readonly MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
   private readonly MAX_ATTACHMENTS_COUNT = 5;
   private readonly ALLOWED_FILE_EXTENSIONS = new Set([
-    '.pdf', '.docx', '.doc', '.txt', '.csv', '.md', '.json',
+    '.pdf', '.docx', '.doc', '.txt', '.csv', '.md', '.markdown', '.json', '.log',
   ]);
 
   private validateAttachments(attachments?: any[]) {
@@ -179,7 +186,7 @@ export class AiService {
           if (allowedTaskSpaceIds.length > 0) {
             const taskSpaces = await this.entityManager.query(
               `SELECT "id", "name", "prefix" 
-               FROM tm_task_space 
+               FROM task_space 
                WHERE "companyId" = $1 AND "id" = ANY($2::int[])`,
               [companyId, allowedTaskSpaceIds]
             );
@@ -253,13 +260,27 @@ export class AiService {
       };
 
       // 5. Forward the request to the Python LangGraph backend as a stream
-      const response = await axios.post(
-        `${aiServiceUrl}/chat`,
-        payload,
-        {
-          responseType: 'stream',
-        },
-      );
+      const abortController = new AbortController();
+      if (conversationId) {
+        this.activeAbortControllers.set(conversationId, abortController);
+      }
+
+      let response;
+      try {
+        response = await axios.post(
+          `${aiServiceUrl}/chat`,
+          payload,
+          {
+            signal: abortController.signal,
+            responseType: 'stream',
+          },
+        );
+      } catch (postErr) {
+        if (conversationId) {
+          this.activeAbortControllers.delete(conversationId);
+        }
+        throw postErr;
+      }
 
       // 6. Transparent Stream Transform with Entity Resolution and Mutation Execution
       const entityResolver = this.entityResolverService;
@@ -293,17 +314,55 @@ export class AiService {
               const hasTaskTargets = targets.some((t) => isTaskCode(t));
               const hasTicketTargets = targets.some((t) => isTicketCode(t));
 
+              // Domain Guardrail Checks (Option 2: Strict Domain Boundary)
+              if (
+                agent === 'project_analytics' &&
+                (parsed.action === 'UPDATE_TICKET' ||
+                  parsed.entityType === 'ticket' ||
+                  (hasTicketTargets && !hasTaskTargets))
+              ) {
+                this.push(
+                  `__FINAL__I am your **Project Analyst**, specialized in tasks, milestones, and projects. To manage or analyze tickets and bugs, please switch to the **Ticket Analyst** from the agent selector or navigate to the Ticket Management page.\n\n`
+                );
+                buffer = '';
+                return callback();
+              }
+
+              if (
+                agent === 'ticket_analytics' &&
+                (parsed.action === 'UPDATE_TASK' ||
+                  parsed.entityType === 'task' ||
+                  (hasTaskTargets && !hasTicketTargets))
+              ) {
+                this.push(
+                  `__FINAL__I am your **Ticket Analyst**, specialized in tickets, bugs, and issues. To manage or analyze tasks and projects, please switch to the **Project Analyst** from the agent selector or navigate to the Task Management page.\n\n`
+                );
+                buffer = '';
+                return callback();
+              }
+
               let isTaskMutation = false;
               if (hasTaskTargets && !hasTicketTargets) {
                 isTaskMutation = true;
               } else if (hasTicketTargets && !hasTaskTargets) {
+                isTaskMutation = false;
+              } else if (parsed.action === 'UPDATE_TASK' || parsed.entityType === 'task') {
+                isTaskMutation = true;
+              } else if (parsed.action === 'UPDATE_TICKET' || parsed.entityType === 'ticket') {
                 isTaskMutation = false;
               } else if (agent === 'ticket_analytics') {
                 isTaskMutation = false;
               } else if (agent === 'project_analytics') {
                 isTaskMutation = true;
               } else {
-                isTaskMutation = parsed.action === 'UPDATE_TASK' || parsed.entityType === 'task';
+                isTaskMutation = true;
+              }
+
+              // Refusal Guard (e.g. Hierarchy Immutability or permission block)
+              if (parsed.status === 'REFUSED') {
+                this.push(`__FINAL__${beforeMarker.trim() || parsed.summary}\n\n`);
+                buffer = '';
+                return callback();
               }
 
               if (isTaskMutation) {
@@ -322,6 +381,26 @@ export class AiService {
                     user,
                     targetSpaceId,
                   );
+
+                  // If user requested bulk mutation (all: true), prepare draft for all candidate tasks directly
+                  if (parsed.filter?.all && candidates.candidateTasks?.length > 0) {
+                    const batchTargets = candidates.candidateTasks.map((t: any) => t.code);
+                    const mutationDraft = await taskMutationExecutor.prepareTaskMutationDraft(
+                      { ...parsed, targets: batchTargets, status: 'READY' },
+                      companyId,
+                      user,
+                    );
+
+                    let displaySummary = mutationDraft.summary;
+                    if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
+                      const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
+                      displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
+                    }
+
+                    this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(mutationDraft)}`);
+                    buffer = '';
+                    return callback();
+                  }
 
                   const optionsPayload = {
                     action: 'UPDATE_TASK',
@@ -397,6 +476,27 @@ export class AiService {
                   requestedSpaceId,
                 );
 
+                // If user requested bulk mutation (all: true), prepare draft for all candidate tickets directly
+                if (parsed.filter?.all && candidates.candidateTickets?.length > 0) {
+                  const batchTargets = candidates.candidateTickets.map((t: any) => t.code);
+                  const mutationDraft = await mutationExecutor.prepareTicketMutationDraft(
+                    { ...parsed, targets: batchTargets, status: 'READY' },
+                    companyId,
+                    allowedTicketSpaceIds,
+                    user,
+                  );
+
+                  let displaySummary = mutationDraft.summary;
+                  if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
+                    const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
+                    displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
+                  }
+
+                  this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(mutationDraft)}`);
+                  buffer = '';
+                  return callback();
+                }
+
                 const optionsPayload = {
                   action: 'UPDATE_TICKET',
                   status: 'NEEDS_INPUT',
@@ -470,6 +570,33 @@ export class AiService {
                 ? parsed.drafts
                 : (parsed.draft ? [parsed.draft] : (Array.isArray(parsed) ? parsed : [parsed]));
 
+              // Domain Guardrail Checks (Option 2: Strict Domain Boundary)
+              if (
+                agent === 'project_analytics' &&
+                (parsed.action === 'CREATE_TICKET' ||
+                  parsed.entityType === 'ticket' ||
+                  (msgTicketCodes.length > 0 && msgTaskCodes.length === 0))
+              ) {
+                this.push(
+                  `__FINAL__I am your **Project Analyst**, specialized in tasks, milestones, and projects. To manage or analyze tickets and bugs, please switch to the **Ticket Analyst** from the agent selector or navigate to the Ticket Management page.\n\n`
+                );
+                buffer = '';
+                return callback();
+              }
+
+              if (
+                agent === 'ticket_analytics' &&
+                (parsed.action === 'CREATE_TASK' ||
+                  parsed.entityType === 'task' ||
+                  (msgTaskCodes.length > 0 && msgTicketCodes.length === 0))
+              ) {
+                this.push(
+                  `__FINAL__I am your **Ticket Analyst**, specialized in tickets, bugs, and issues. To manage or analyze tasks and projects, please switch to the **Project Analyst** from the agent selector or navigate to the Task Management page.\n\n`
+                );
+                buffer = '';
+                return callback();
+              }
+
               let isTaskDraft = false;
               if (agent === 'ticket_analytics') {
                 // Strictly ticket domain unless user explicitly targeted a task code
@@ -510,26 +637,36 @@ export class AiService {
                   needs: needs && needs.length > 0 ? needs : (parsed.needs || []),
                 };
 
-                let displaySummary = summary || parsed.summary || beforeMarker.trim();
-                // Never show ticket text when creating tasks
-                if (displaySummary.toLowerCase().includes('ticket')) {
-                  displaySummary = summary || (isArray && resolvedDraft.length > 1
-                    ? `I've prepared ${resolvedDraft.length} tasks for you. Please review the details before proceeding.`
-                    : `I've prepared your task draft. Please review the details before proceeding.`);
-                }
                 const targetDraftsList = Array.isArray(resolvedDraft) ? resolvedDraft : [resolvedDraft];
-                const parentEntry = targetDraftsList.find((d: any) => d?.parentTaskCode || d?.parentTaskName);
-                if (parentEntry && !displaySummary.includes('Saving will update')) {
-                  const pCode = parentEntry.parentTaskCode || '';
-                  const pName = parentEntry.parentTaskName || '';
-                  const pLabel = pCode && pName ? `${pCode}: ${pName}` : pCode || pName;
-                  if (pLabel) {
-                    displaySummary = `${displaySummary.trim()} Saving will update ${pLabel}.`;
-                  }
+                const count = targetDraftsList.length;
+                const parentEntry = targetDraftsList.find((d: any) => d?.parentTaskId && d?.parentTaskId > 0 && (d?.parentTaskCode || d?.parentTaskName));
+                const newRootProject = targetDraftsList.find((d: any) => d?.isCreateNewLevel1 || d?.hierarchyLevelSequence === 0 || d?.parentTaskId === -1);
+
+                const pCode = parentEntry?.parentTaskCode || '';
+                const pName = parentEntry?.parentTaskName || '';
+                const pLabel = pCode && pName ? `${pCode}: ${pName}` : pCode || pName;
+
+                let displaySummary = "";
+                if (resolvedPayload.status === 'NEEDS_INPUT') {
+                  displaySummary = summary || parsed.summary || beforeMarker.trim();
+                } else if (pLabel) {
+                  displaySummary = `I've prepared ${count > 1 ? `${count} tasks` : 'your task draft'} under **${pLabel}** for your review.`;
+                } else if (newRootProject && count > 1) {
+                  const rootName = newRootProject.name || 'new project';
+                  displaySummary = `I've prepared **${rootName}** with ${count - 1} child tasks for your review.`;
+                } else {
+                  displaySummary = `I've prepared ${count > 1 ? `${count} tasks` : 'your task draft'} for your review.`;
                 }
-                if (allWarnings.length > 0) {
-                  const uniqueWarnings = Array.from(new Set(allWarnings));
-                  displaySummary += '\n\n' + uniqueWarnings.map((w) => `⚠️ ${w}`).join('\n');
+
+                if (resolvedPayload.status !== 'NEEDS_INPUT') {
+                  if (allWarnings.length > 0) {
+                    const cleanWarnings = Array.from(new Set(allWarnings)).map((w) => {
+                      return w.replace(/^Assignee "(.*?)" is not assigned to space "(.*?)". Please select from assigned space resources.?/i, 'Assignee "$1" is not assigned to this space; please select from available space resources in the table below.');
+                    });
+                    displaySummary += ` Note: ${cleanWarnings.join(' ')}`;
+                  } else {
+                    displaySummary += ' Please review and adjust the details in the table before saving.';
+                  }
                 }
 
                 this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(resolvedPayload)}`);
@@ -591,7 +728,7 @@ export class AiService {
               let displaySummary = beforeMarker.trim();
               if (allWarnings.length > 0) {
                 const uniqueWarnings = Array.from(new Set(allWarnings));
-                displaySummary += '\n\n' + uniqueWarnings.map((w) => `⚠️ ${w}`).join('\n');
+                displaySummary += '\n\n' + uniqueWarnings.map((w) => `${w}`).join('\n');
               }
 
               this.push(`__FINAL__${displaySummary}\n\n__DRAFT_PAYLOAD__${JSON.stringify(resolvedPayload)}`);
@@ -608,6 +745,17 @@ export class AiService {
         },
       });
 
+      const cleanup = () => {
+        if (conversationId) {
+          this.activeAbortControllers.delete(conversationId);
+        }
+      };
+      transformStream.on('close', cleanup);
+      transformStream.on('finish', cleanup);
+      transformStream.on('error', cleanup);
+      response.data.on('close', cleanup);
+      response.data.on('end', cleanup);
+
       return response.data.pipe(transformStream);
     } catch (error) {
       console.error('Error proxying to LangGraph service:', error);
@@ -616,5 +764,34 @@ export class AiService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async stopChat(conversationId: string) {
+    if (!conversationId) return { status: 'no_conversation_id' };
+
+    // 1. Abort upstream axios stream if still active
+    const controller = this.activeAbortControllers.get(conversationId);
+    if (controller) {
+      try {
+        controller.abort();
+      } catch (err) {
+        console.warn(`Error aborting NestJS stream for conversation ${conversationId}:`, err);
+      }
+      this.activeAbortControllers.delete(conversationId);
+    }
+
+    // 2. Call Python LangGraph backend /chat/stop
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+    try {
+      await axios.post(
+        `${aiServiceUrl}/chat/stop`,
+        { conversation_id: conversationId },
+        { timeout: 3000 },
+      );
+    } catch {
+      // Ignore if AI service was already disconnected
+    }
+
+    return { status: 'stopped', conversationId };
   }
 }
