@@ -125,6 +125,28 @@ export class TicketEntityResolverService {
     }
 
     // 1. Resolve Ticket Space
+    // If the draft explicitly requested a space name, try to resolve that space first
+    if (resolved.ticketSpaceName && allowedSpaceIds.length > 0) {
+      const targetName = resolved.ticketSpaceName.trim().toLowerCase();
+      const spaces: Array<{ id: number; name: string }> = await this.entityManager.query(
+        `SELECT "id", "name" 
+         FROM ticket_space 
+         WHERE "companyId" = $1 AND "id" = ANY($2::int[])`,
+        [companyId, allowedSpaceIds]
+      );
+
+      const matched = spaces.find(
+        (s) => s.name.toLowerCase() === targetName
+      ) || spaces.find(
+        (s) => s.name.toLowerCase().includes(targetName) || targetName.includes(s.name.toLowerCase())
+      );
+
+      if (matched) {
+        resolved.ticketSpaceId = Number(matched.id);
+        resolved.ticketSpaceName = matched.name;
+      }
+    }
+
     if (!resolved.ticketSpaceId && context) {
       const ctxSpaceId = context.ticketSpaceId || context.ticket_space_id || context.spaceId;
       if (ctxSpaceId && ctxSpaceId !== 'none') {
@@ -209,8 +231,19 @@ export class TicketEntityResolverService {
           [resolvedSpaceId]
         );
         const targetSev = resolved.severityName.trim().toLowerCase();
-        const matchedSev = sevRows.find((s) => s.name.toLowerCase() === targetSev) ||
+        let matchedSev = sevRows.find((s) => s.name.toLowerCase() === targetSev) ||
           sevRows.find((s) => s.name.toLowerCase().includes(targetSev) || targetSev.includes(s.name.toLowerCase()));
+
+        if (!matchedSev) {
+          if (["critical", "blocker", "urgent", "p1", "highest", "sev1", "sev 1"].some((syn) => targetSev.includes(syn))) {
+            matchedSev = sevRows.find((s) => ["blocker", "critical", "urgent", "high"].some((t) => s.name.toLowerCase().includes(t)));
+          } else if (["high", "major", "p2", "sev2", "sev 2"].some((syn) => targetSev.includes(syn))) {
+            matchedSev = sevRows.find((s) => ["high", "major", "medium"].some((t) => s.name.toLowerCase().includes(t)));
+          } else if (["low", "minor", "trivial", "p4", "lowest", "sev4"].some((syn) => targetSev.includes(syn))) {
+            matchedSev = sevRows.find((s) => ["low", "minor", "trivial"].some((t) => s.name.toLowerCase().includes(t)));
+          }
+        }
+
         if (matchedSev) {
           resolved.severityId = Number(matchedSev.id);
           resolved.severityName = matchedSev.name;

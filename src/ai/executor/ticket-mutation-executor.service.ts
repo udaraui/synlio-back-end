@@ -939,6 +939,16 @@ export class TicketMutationExecutorService {
       });
     }
 
+    // 4. Filter by severity if requested (e.g. "all high-priority tickets")
+    const severityFilter = filter.severity || filter.severityName || filter.priority;
+    if (severityFilter) {
+      const sev = String(severityFilter).trim().toLowerCase();
+      qb.leftJoin('ticket.severity', 'ticketSeverity');
+      qb.andWhere('(LOWER(ticket.severityName) LIKE :sev OR LOWER(ticketSeverity.name) LIKE :sev)', {
+        sev: `%${sev}%`,
+      });
+    }
+
     qb.orderBy('ticket.id', 'DESC').take(15);
     const tickets = await qb.getMany();
 
@@ -955,12 +965,25 @@ export class TicketMutationExecutorService {
     const allCodes = tickets.map((t) => t.code);
     const options: Array<{ id: number; name: string; label: string; actionText: string }> = [];
 
+    const actionStatus = mutationPayload.changes?.status || mutationPayload.changes?.statusName;
+    const targetAssignee = mutationPayload.changes?.assignee || mutationPayload.changes?.assigneeName;
+    const targetSeverity = mutationPayload.changes?.severity || mutationPayload.changes?.severityName;
+
+    let actionLabel = 'Update';
+    if (actionStatus) {
+      actionLabel = `Move to ${actionStatus}`;
+    } else if (targetAssignee) {
+      actionLabel = `Assign to ${targetAssignee}`;
+    } else if (targetSeverity) {
+      actionLabel = `Set priority to ${targetSeverity}`;
+    }
+
     // Option 0: All tickets (user-confirmed rule)
     options.push({
       id: 0,
       label: `All (${totalCount} tickets)`,
-      name: `Move all (${allCodes.join(', ')}) to ${targetStatus}`,
-      actionText: `Move all (${allCodes.join(', ')}) to ${targetStatus}`,
+      name: `${actionLabel} all (${allCodes.join(', ')})`,
+      actionText: `${actionLabel} all (${allCodes.join(', ')})`,
     });
 
     // Options 1..5: first 4-5 tickets individually
@@ -970,13 +993,14 @@ export class TicketMutationExecutorService {
       options.push({
         id: idx + 1,
         label: `${t.code}: ${titleShort}`,
-        name: `Move ${t.code} to ${targetStatus}`,
-        actionText: `Move ${t.code} to ${targetStatus}`,
+        name: `${actionLabel} ${t.code}`,
+        actionText: `${actionLabel} ${t.code}`,
       });
     });
 
     const assigneeDesc = requestedAssignee ? `assigned to **${requestedAssignee}**` : '';
-    const summary = `I found **${totalCount}** ticket${totalCount !== 1 ? 's' : ''} ${assigneeDesc} in this space. Which ticket(s) would you like to move to **${targetStatus}**?`;
+    const sevDesc = severityFilter ? `with **${severityFilter}** priority` : '';
+    const summary = `I found **${totalCount}** ticket${totalCount !== 1 ? 's' : ''} ${assigneeDesc} ${sevDesc} in this space. Which ticket(s) would you like to ${actionLabel.toLowerCase()}?`;
 
     return {
       summary,

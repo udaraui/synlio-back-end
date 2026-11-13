@@ -330,9 +330,7 @@ export class AiService {
 
               if (
                 agent === 'ticket_analytics' &&
-                (parsed.action === 'UPDATE_TASK' ||
-                  parsed.entityType === 'task' ||
-                  (hasTaskTargets && !hasTicketTargets))
+                (hasTaskTargets && !hasTicketTargets)
               ) {
                 this.push(
                   `__FINAL__I am your **Ticket Analyst**, specialized in tickets, bugs, and issues. To manage or analyze tasks and projects, please switch to the **Project Analyst** from the agent selector or navigate to the Task Management page.\n\n`
@@ -346,14 +344,14 @@ export class AiService {
                 isTaskMutation = true;
               } else if (hasTicketTargets && !hasTaskTargets) {
                 isTaskMutation = false;
-              } else if (parsed.action === 'UPDATE_TASK' || parsed.entityType === 'task') {
-                isTaskMutation = true;
-              } else if (parsed.action === 'UPDATE_TICKET' || parsed.entityType === 'ticket') {
-                isTaskMutation = false;
               } else if (agent === 'ticket_analytics') {
                 isTaskMutation = false;
               } else if (agent === 'project_analytics') {
                 isTaskMutation = true;
+              } else if (parsed.action === 'UPDATE_TASK' || parsed.entityType === 'task') {
+                isTaskMutation = true;
+              } else if (parsed.action === 'UPDATE_TICKET' || parsed.entityType === 'ticket') {
+                isTaskMutation = false;
               } else {
                 isTaskMutation = true;
               }
@@ -586,9 +584,7 @@ export class AiService {
 
               if (
                 agent === 'ticket_analytics' &&
-                (parsed.action === 'CREATE_TASK' ||
-                  parsed.entityType === 'task' ||
-                  (msgTaskCodes.length > 0 && msgTicketCodes.length === 0))
+                (msgTaskCodes.length > 0 && msgTicketCodes.length === 0)
               ) {
                 this.push(
                   `__FINAL__I am your **Ticket Analyst**, specialized in tickets, bugs, and issues. To manage or analyze tasks and projects, please switch to the **Project Analyst** from the agent selector or navigate to the Task Management page.\n\n`

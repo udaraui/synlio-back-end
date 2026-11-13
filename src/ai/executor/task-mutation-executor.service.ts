@@ -470,7 +470,8 @@ export class TaskMutationExecutorService {
     const severityFilter = filter.severity || filter.severityName || filter.priority;
     if (severityFilter) {
       const sev = String(severityFilter).trim().toLowerCase();
-      qb.andWhere('LOWER(task.severityName) = :severity', { severity: sev });
+      qb.leftJoin('task.severity', 'taskSeverity');
+      qb.andWhere('(LOWER(task.severityName) LIKE :severity OR LOWER(taskSeverity.name) LIKE :severity)', { severity: `%${sev}%` });
     }
 
     const query = filter.query || filter.title || filter.name || filter.search;
