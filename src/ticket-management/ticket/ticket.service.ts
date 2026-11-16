@@ -6,10 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
-import { Between, EntityManager, Equal, In, LessThan, Not } from 'typeorm';
+import { Between, EntityManager, Equal, ILike, In, LessThan, Not } from 'typeorm';
 import { Ticket } from './ticket.entity';
 import { Comment } from '../../comment/comment/comment.entity';
 import { PostType } from '../../common/enum/post-type.enum';
+import { Pulse } from '../../pulse/pulse.entity';
+import { PulseType } from '../../common/enum/pulse-type.enum';
+import { PulseWeek } from '../../pulse/pulse-week.entity';
+import { WorkLog } from '../../work-log/work-log.entity';
+import { Resource } from '../../resource-management/resource/resource.entity';
 import { CreateTicketDto, UpdateTicketDto } from './dto/ticket.dto';
 import { TicketSpaceMember } from '../ticket-space-member/ticket-space-member.entity';
 import { TicketSpace } from '../ticket-space/ticket-space.entity';
@@ -578,6 +583,11 @@ export class TicketService {
           throw new NotFoundException(`Ticket with ID ${id} not found`);
         }
 
+        const oldName = existingTicket.name;
+        const oldCode = existingTicket.code;
+        const oldTicketSpaceId = existingTicket.ticketSpaceId;
+        const oldTicketSpaceName = existingTicket.ticketSpaceName;
+
         const snap = existingTicket as unknown as Record<string, unknown>;
         for (const key of Object.keys(ticketData)) {
           oldSnapshot[key] = snap[key];
@@ -633,6 +643,38 @@ export class TicketService {
         existingTicket.updatedBy = authUser.email;
 
         await transactionalEntityManager.save(existingTicket);
+
+        // Sync linked Pulse records when Ticket name, code, or space changes
+        if (
+          oldName !== existingTicket.name ||
+          oldCode !== existingTicket.code ||
+          oldTicketSpaceId !== existingTicket.ticketSpaceId ||
+          oldTicketSpaceName !== existingTicket.ticketSpaceName
+        ) {
+          await transactionalEntityManager.query(
+            `UPDATE pulse
+             SET "postName" = $1,
+                 "postCode" = $2,
+                 "postSpaceId" = $3,
+                 "postSpaceName" = $4,
+                 "updatedBy" = $5,
+                 "updatedAt" = $6
+             WHERE "companyId" = $7
+               AND "postType" = $8
+               AND "postId" = $9`,
+            [
+              existingTicket.name,
+              existingTicket.code,
+              existingTicket.ticketSpaceId,
+              existingTicket.ticketSpaceName,
+              (authUser?.email as string) ?? 'SYSTEM',
+              new Date(),
+              existingTicket.companyId,
+              PostType.TKT,
+              id,
+            ],
+          );
+        }
 
         // If ticketSlaId, severityId, or statusId changed via general patch, refresh SLA deadlines
         if (
@@ -690,6 +732,36 @@ export class TicketService {
       });
       if (!result.affected)
         throw new HttpException('Ticket not found', HttpStatus.NOT_FOUND);
+
+      if (activeCompanyId && activeCompanyId !== 0) {
+        await transactionalEntityManager.query(
+          `UPDATE pulse
+           SET "postName" = $1,
+               "updatedBy" = $2,
+               "updatedAt" = $3
+           WHERE "companyId" = $4
+             AND "postType" = $5
+             AND "postId" = $6`,
+          [
+            name,
+            (authUser?.email as string) ?? 'SYSTEM',
+            now,
+            activeCompanyId,
+            PostType.TKT,
+            id,
+          ],
+        );
+      } else {
+        await transactionalEntityManager.query(
+          `UPDATE pulse
+           SET "postName" = $1,
+               "updatedBy" = $2,
+               "updatedAt" = $3
+           WHERE "postType" = $4
+             AND "postId" = $5`,
+          [name, (authUser?.email as string) ?? 'SYSTEM', now, PostType.TKT, id],
+        );
+      }
     });
 
     // Fire-and-forget alert (oldName supplied by caller — no extra DB read needed)
@@ -1273,6 +1345,87 @@ export class TicketService {
     }
 
     await this.entityManager.transaction(async (transactionalEntityManager) => {
+      // 1. Find all linked Pulse rows for this Ticket
+      const linkedPulses = await transactionalEntityManager.find(Pulse, {
+        where: {
+          companyId: ticket.companyId,
+          postType: PostType.TKT,
+          postId: id,
+        },
+        select: ['id', 'pulseWeekId', 'pulseType', 'allocatedHours'],
+      });
+
+      // 2. Collect unique affected pulseWeekIds
+      const affectedPulseWeekIds = Array.from(
+        new Set(
+          linkedPulses
+            .map((p) => p.pulseWeekId)
+            .filter((pwId): pwId is number => typeof pwId === 'number'),
+        ),
+      );
+
+      // 3. Delete matching Pulse rows
+      if (linkedPulses.length > 0) {
+        await transactionalEntityManager.delete(Pulse, {
+          companyId: ticket.companyId,
+          postType: PostType.TKT,
+          postId: id,
+        });
+      }
+
+      // 4. Clean up associated work_log entries
+      await transactionalEntityManager.delete(WorkLog, {
+        companyId: ticket.companyId,
+        postType: PostType.TKT,
+        postId: id,
+      });
+
+      // 5. Recalculate affected PulseWeek totals
+      for (const pulseWeekId of affectedPulseWeekIds) {
+        const pulseWeek = await transactionalEntityManager.findOne(PulseWeek, {
+          where: { id: pulseWeekId, companyId: ticket.companyId },
+        });
+        if (!pulseWeek) continue;
+
+        const remainingPulses = await transactionalEntityManager.find(Pulse, {
+          where: { pulseWeekId: pulseWeek.id, companyId: ticket.companyId },
+        });
+
+        const synlioActivityTime = remainingPulses
+          .filter((p) => p.pulseType === PulseType.SYNLIO_ACTIVITY)
+          .reduce((sum, p) => sum + Number(p.allocatedHours || 0), 0);
+
+        const needAttentionCount = remainingPulses.filter(
+          (p) => p.pulseType === PulseType.NEED_ATTENTION,
+        ).length;
+
+        const resource = pulseWeek.userEmail
+          ? await transactionalEntityManager.findOne(Resource, {
+              where: {
+                email: ILike(pulseWeek.userEmail),
+                companyId: pulseWeek.companyId,
+              },
+            })
+          : null;
+
+        const expectedWorkingHours =
+          resource && resource.working_hours
+            ? Number(resource.working_hours) * 5
+            : 40;
+
+        const meetingTime = Number(pulseWeek.meetingTime || 0);
+        const missingTime =
+          expectedWorkingHours - (synlioActivityTime + meetingTime);
+
+        pulseWeek.synlioActivityTime = synlioActivityTime;
+        pulseWeek.needAttentionCount = needAttentionCount;
+        pulseWeek.missingTime = missingTime;
+        pulseWeek.updatedBy = (authUser?.email as string) ?? 'SYSTEM';
+        pulseWeek.updatedAt = new Date();
+
+        await transactionalEntityManager.save(PulseWeek, pulseWeek);
+      }
+
       await transactionalEntityManager.query(
         `DELETE FROM ticket_participants WHERE "ticketId" = $1`,
         [id],

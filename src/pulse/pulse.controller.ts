@@ -194,6 +194,25 @@ export class PulseController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @AuthorizationPermissions('54', '101', '109', '30', '31', '32', '11', '12', '13')
+  @Get('/check-linked/:postType/:postId')
+  checkLinkedPulse(
+    @Param('postType') postType: string,
+    @Param('postId', ParseIntPipe) postId: number,
+    @Request() req: { activeCompany?: { companyId?: number } },
+  ): Promise<{
+    isLinked: boolean;
+    linkedPulseCount: number;
+    linkedPulseWeekCount: number;
+  }> {
+    return this.pulseService.checkLinkedPulse(
+      postType,
+      postId,
+      Number(req.activeCompany?.companyId),
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @AuthorizationPermissions('54', '101', '109')
   @Get('hierarchy/:postType/:postId')
   getPostHierarchy(

@@ -61,7 +61,7 @@ export class Company extends BaseEntity {
   @OneToMany(() => ResourcePool, (rp) => rp.company)
   resourcepools: ResourcePool[];
 
-  @OneToMany(() => UserCompanyRole, (ucr) => ucr.user)
+  @OneToMany(() => UserCompanyRole, (ucr) => ucr.company)
   userCompanyRoles: UserCompanyRole[];
 
   @OneToMany(() => Role, (role) => role.company)

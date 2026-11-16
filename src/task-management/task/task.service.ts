@@ -1,9 +1,14 @@
 import { HttpException, HttpStatus, Injectable, BadRequestException } from '@nestjs/common';
 import { QueryParam } from '../../common/common-db-operation/common-db-operation-query-param.dto';
-import { Between, EntityManager, Equal, In, LessThan, Not, Raw } from 'typeorm';
+import { Between, EntityManager, Equal, ILike, In, LessThan, Not, Raw } from 'typeorm';
 import { Task } from './task.entity';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { Resource } from '../../resource-management/resource/resource.entity';
+import { Pulse } from '../../pulse/pulse.entity';
+import { PulseWeek } from '../../pulse/pulse-week.entity';
+import { PulseType } from '../../common/enum/pulse-type.enum';
+import { PostType } from '../../common/enum/post-type.enum';
+import { WorkLog } from '../../work-log/work-log.entity';
 import { TaskSpaceSeverityConfig } from '../task-space-severity-config/task-space-severity-config.entity';
 import { StatusBaseEnum } from '../../common/enum/status-base.enum';
 import { TaskSpace } from '../task-space/task-space.entity';
@@ -418,6 +423,9 @@ export class TmTaskService {
     const task = await this.entityManager.findOne(Task, { where });
     if (!task) throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
     const oldParentTaskId = task.parentTaskId; // capture before any changes
+    const oldTaskSpaceId = task.taskSpaceId;
+    const oldTaskSpaceName = task.taskSpaceName;
+    const oldCode = task.code;
 
     // Capture old snapshot for alert diffing
     const oldSnapshot: Record<string, unknown> = {
@@ -605,6 +613,38 @@ export class TmTaskService {
     task.updatedAt = new Date();
 
     await this.entityManager.save(Task, task);
+
+    // Sync Pulse records if name, code, or project space changed
+    if (
+      oldSnapshot.name !== task.name ||
+      oldCode !== task.code ||
+      oldTaskSpaceId !== task.taskSpaceId ||
+      oldTaskSpaceName !== task.taskSpaceName
+    ) {
+      await this.entityManager.query(
+        `UPDATE pulse
+         SET "postName" = $1,
+             "postCode" = $2,
+             "postSpaceId" = $3,
+             "postSpaceName" = $4,
+             "updatedBy" = $5,
+             "updatedAt" = $6
+         WHERE "companyId" = $7
+           AND "postType" = $8
+           AND "postId" = $9`,
+        [
+          task.name,
+          task.code,
+          task.taskSpaceId,
+          task.taskSpaceName,
+          (authUser?.email as string) ?? 'SYSTEM',
+          task.updatedAt,
+          task.companyId,
+          PostType.TSK,
+          id,
+        ],
+      );
+    }
 
     if (data.coAssigneeIds !== undefined) {
       task.coAssignees = data.coAssigneeIds.length
@@ -891,41 +931,128 @@ export class TmTaskService {
       ],
     });
 
-    // Clear many-to-many relations
-    await this.entityManager.query(
-      `DELETE FROM tm_task_co_assignees WHERE "taskId" = $1`,
-      [id],
-    );
-    await this.entityManager.query(
-      `DELETE FROM tm_task_members WHERE "taskId" = $1`,
-      [id],
-    );
-    await this.entityManager.query(
-      `DELETE FROM tm_task_labels_mapping WHERE "taskId" = $1`,
-      [id],
-    );
+    await this.entityManager.transaction(async (txManager) => {
+      // 1. Find all linked Pulse rows for this Task
+      const linkedPulses = await txManager.find(Pulse, {
+        where: {
+          companyId: task.companyId,
+          postType: PostType.TSK,
+          postId: id,
+        },
+        select: ['id', 'pulseWeekId', 'pulseType', 'allocatedHours'],
+      });
 
-    // Checklists live in the shared polymorphic table, so there is no FK
-    // cascade to rely on — remove them explicitly.
-    await this.entityManager.delete(Checklist, {
-      entityType: 'Task',
-      entityId: id,
+      // 2. Collect unique affected pulseWeekIds
+      const affectedPulseWeekIds = Array.from(
+        new Set(
+          linkedPulses
+            .map((p) => p.pulseWeekId)
+            .filter((pwId): pwId is number => typeof pwId === 'number'),
+        ),
+      );
+
+      // 3. Delete matching Pulse rows
+      if (linkedPulses.length > 0) {
+        await txManager.delete(Pulse, {
+          companyId: task.companyId,
+          postType: PostType.TSK,
+          postId: id,
+        });
+      }
+
+      // 4. Clean up associated work_log entries and unlink activity rows
+      await txManager.delete(WorkLog, {
+        companyId: task.companyId,
+        postType: PostType.TSK,
+        postId: id,
+      });
+      await txManager.query(
+        `UPDATE activity SET "taskId" = NULL WHERE "taskId" = $1`,
+        [id],
+      );
+
+      // 5. Recalculate affected PulseWeek totals
+      for (const pulseWeekId of affectedPulseWeekIds) {
+        const pulseWeek = await txManager.findOne(PulseWeek, {
+          where: { id: pulseWeekId, companyId: task.companyId },
+        });
+        if (!pulseWeek) continue;
+
+        const remainingPulses = await txManager.find(Pulse, {
+          where: { pulseWeekId: pulseWeek.id, companyId: task.companyId },
+        });
+
+        const synlioActivityTime = remainingPulses
+          .filter((p) => p.pulseType === PulseType.SYNLIO_ACTIVITY)
+          .reduce((sum, p) => sum + Number(p.allocatedHours || 0), 0);
+
+        const needAttentionCount = remainingPulses.filter(
+          (p) => p.pulseType === PulseType.NEED_ATTENTION,
+        ).length;
+
+        const resource = pulseWeek.userEmail
+          ? await txManager.findOne(Resource, {
+              where: {
+                email: ILike(pulseWeek.userEmail),
+                companyId: pulseWeek.companyId,
+              },
+            })
+          : null;
+
+        const expectedWorkingHours =
+          resource && resource.working_hours
+            ? Number(resource.working_hours) * 5
+            : 40;
+
+        const meetingTime = Number(pulseWeek.meetingTime || 0);
+        const missingTime =
+          expectedWorkingHours - (synlioActivityTime + meetingTime);
+
+        pulseWeek.synlioActivityTime = synlioActivityTime;
+        pulseWeek.needAttentionCount = needAttentionCount;
+        pulseWeek.missingTime = missingTime;
+        pulseWeek.updatedBy = (authUser?.email as string) ?? 'SYSTEM';
+        pulseWeek.updatedAt = new Date();
+
+        await txManager.save(PulseWeek, pulseWeek);
+      }
+
+      // Clear many-to-many relations
+      await txManager.query(
+        `DELETE FROM tm_task_co_assignees WHERE "taskId" = $1`,
+        [id],
+      );
+      await txManager.query(
+        `DELETE FROM tm_task_members WHERE "taskId" = $1`,
+        [id],
+      );
+      await txManager.query(
+        `DELETE FROM tm_task_labels_mapping WHERE "taskId" = $1`,
+        [id],
+      );
+
+      // Checklists live in the shared polymorphic table, so there is no FK
+      // cascade to rely on — remove them explicitly.
+      await txManager.delete(Checklist, {
+        entityType: 'Task',
+        entityId: id,
+      });
+
+      await txManager.delete(Task, { id });
+
+      // Decrease sequence if it was the maximum
+      const match = task.code.match(/-([A-Z]+)\d+$/);
+      const levelPrefix = match ? match[1] : null;
+      await this.postSequenceService.reduceSequenceIfMaximum(
+        txManager,
+        task.companyId,
+        task.taskSpaceId,
+        SequencePostType.TSK,
+        levelPrefix,
+        task.code,
+        parentTaskId,
+      );
     });
-
-    await this.entityManager.delete(Task, { id });
-
-    // Decrease sequence if it was the maximum
-    const match = task.code.match(/-([A-Z]+)\d+$/);
-    const levelPrefix = match ? match[1] : null;
-    await this.postSequenceService.reduceSequenceIfMaximum(
-      this.entityManager,
-      task.companyId,
-      task.taskSpaceId,
-      SequencePostType.TSK,
-      levelPrefix,
-      task.code,
-      parentTaskId,
-    );
 
     // Re-calculate parent dates and status now that this child is gone
     if (parentTaskId) {
@@ -973,6 +1100,37 @@ export class TmTaskService {
     });
     if (!result.affected)
       throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
+
+    // Sync linked Pulse records with updated Task name
+    if (activeCompanyId && activeCompanyId !== 0) {
+      await this.entityManager.query(
+        `UPDATE pulse
+         SET "postName" = $1,
+             "updatedBy" = $2,
+             "updatedAt" = $3
+         WHERE "companyId" = $4
+           AND "postType" = $5
+           AND "postId" = $6`,
+        [
+          name,
+          (authUser?.email as string) ?? 'SYSTEM',
+          now,
+          activeCompanyId,
+          PostType.TSK,
+          id,
+        ],
+      );
+    } else {
+      await this.entityManager.query(
+        `UPDATE pulse
+         SET "postName" = $1,
+             "updatedBy" = $2,
+             "updatedAt" = $3
+         WHERE "postType" = $4
+           AND "postId" = $5`,
+        [name, (authUser?.email as string) ?? 'SYSTEM', now, PostType.TSK, id],
+      );
+    }
 
     // Fire-and-forget alert (oldName supplied by caller — no extra DB read needed)
     void this.taskAlertService.dispatchNameChanged(
@@ -1584,6 +1742,7 @@ export class TmTaskService {
         .addSelect('r.last_name', 'last_name')
         .addSelect('r.email', 'email')
         .addSelect('r.profile_pic', 'profile_pic')
+        .addSelect('r.active_status', 'active_status')
         .from('tm_task_members', 'm')
         .leftJoin('resource', 'r', 'r.id = m."resourceId"')
         .where('m.taskId IN (:...taskIds)', { taskIds: filteredTaskIds })
@@ -1597,6 +1756,7 @@ export class TmTaskService {
         .addSelect('r.last_name', 'last_name')
         .addSelect('r.email', 'email')
         .addSelect('r.profile_pic', 'profile_pic')
+        .addSelect('r.active_status', 'active_status')
         .from('tm_task_co_assignees', 'ca')
         .leftJoin('resource', 'r', 'r.id = ca."resourceId"')
         .where('ca.taskId IN (:...taskIds)', { taskIds: filteredTaskIds })
@@ -1659,6 +1819,8 @@ export class TmTaskService {
           last_name: row.last_name ?? '',
           email: row.email ?? '',
           profile_pic: row.profile_pic ?? null,
+          active_status:
+            typeof row.active_status === 'boolean' ? row.active_status : true,
         });
       }
     }
@@ -1673,6 +1835,8 @@ export class TmTaskService {
           last_name: row.last_name ?? '',
           email: row.email ?? '',
           profile_pic: row.profile_pic ?? null,
+          active_status:
+            typeof row.active_status === 'boolean' ? row.active_status : true,
         });
       }
     }

@@ -1,12 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { EntityManager, MoreThanOrEqual, Raw } from 'typeorm';
+import {
+  EntityManager,
+  FindOptionsWhere,
+  MoreThanOrEqual,
+  QueryFailedError,
+  Raw,
+} from 'typeorm';
 import { Calendar } from './calendar.entity';
 import { CalendarDays, DayOfWeek, DayType } from './calendar-days.entity';
 import { CreateCalendarDto, UpdateCalendarDto } from './dto/calendar.dto';
@@ -679,8 +686,12 @@ export class CalendarService {
     };
   }
 
-  async deleteCalendar(id: number, authUser: any, activeCompanyId?: number) {
-    const where: any = { id };
+  async deleteCalendar(
+    id: number,
+    _authUser: Record<string, unknown>,
+    activeCompanyId?: number,
+  ) {
+    const where: FindOptionsWhere<Calendar> = { id };
     if (activeCompanyId && activeCompanyId !== 0) {
       where.company = { id: activeCompanyId };
     }
@@ -691,46 +702,54 @@ export class CalendarService {
     }
 
     const resourceRepository = this.entityManager.getRepository(Resource);
-    const calendarDaysRepository =
-      this.entityManager.getRepository(CalendarDays);
 
-    // Concurrently count related entities in all relationships
-    const [relatedResourcesCount] = await Promise.all([
-      // 1. Check Resource relationship (OneToMany)
-      resourceRepository.count({
-        where: { calendar: { id } },
-      }),
-    ]);
+    // 1. Check Resource relationship before attempting deletion
+    const relatedResourcesCount = await resourceRepository.count({
+      where: { calendar: { id } },
+    });
 
-    // Sum up all associated records
-    const totalAssociatedRecords = relatedResourcesCount;
-
-    // If children exist, return the detailed error message
-    if (totalAssociatedRecords > 0) {
-      const errorDetails: string[] = [];
-
-      if (relatedResourcesCount > 0) {
-        errorDetails.push(`- ${relatedResourcesCount} associated resource(s)`);
-      }
-
-      const detailedMessage = `Calendar is currently linked to the following entities:\n${errorDetails.join('\n')}\n\nPlease unassign this calendar from all related records first`;
-
-      return {
-        error: 'Cannot delete calendar due to active relationships',
-        message: detailedMessage,
-        status: 400,
-      };
+    if (relatedResourcesCount > 0) {
+      throw new ConflictException({
+        status: 409,
+        error: 'Deletion Blocked',
+        message: `Cannot delete the calendar "${calendar.name}" because it is currently assigned to ${relatedResourcesCount} resource(s). Please reassign those resources to another calendar first.`,
+        counts: {
+          resourcesCount: relatedResourcesCount,
+        },
+      });
     }
 
-    await calendarDaysRepository.delete({ calendar: { id } });
+    // 2. Delete calendar days and the calendar atomically inside a transaction
+    try {
+      await this.entityManager.transaction(async (tem) => {
+        await tem.delete(CalendarDays, { calendar: { id } });
+        await tem.delete(Calendar, id);
+      });
 
-    // If no children exist, proceed with deletion
-    await this.entityManager.delete(Calendar, id);
-
-    return {
-      message: 'Calendar deleted',
-      status: 200,
-    };
+      return {
+        message: `Calendar "${calendar.name}" has been deleted successfully.`,
+        status: 200,
+      };
+    } catch (error: unknown) {
+      if (error instanceof ConflictException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as
+          | { code?: string; table?: string }
+          | undefined;
+        if (driverError?.code === '23503') {
+          throw new ConflictException(
+            `Cannot delete the calendar "${calendar.name}" because it is still referenced by active records${driverError.table ? ` in "${driverError.table}"` : ''}. Please unassign all linked resources first.`,
+          );
+        }
+      }
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : `Failed to delete the calendar "${calendar.name}".`,
+      );
+    }
   }
 
   async createSpecialHoliday(

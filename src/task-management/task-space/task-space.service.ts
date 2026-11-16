@@ -133,6 +133,8 @@ export class TaskSpaceService implements OnModuleInit {
         last_name: u.last_name,
         email: u.email,
         profile_pic: u.profile_picture,
+        isActive: u.isActive,
+        active_status: u.isActive,
       })),
       members: (taskSpace.resources ?? []).map((r) => ({
         id: r.id,
@@ -140,6 +142,7 @@ export class TaskSpaceService implements OnModuleInit {
         last_name: r.last_name,
         email: r.email,
         profile_pic: r.profile_pic,
+        active_status: r.active_status,
         skills: (r.resourceSkills ?? [])
           .map((rs) => rs.skillName ?? rs.skill?.name)
           .filter((s): s is string => Boolean(s)),
@@ -1168,6 +1171,7 @@ export class TaskSpaceService implements OnModuleInit {
         last_name: r.last_name,
         email: r.email,
         profile_pic: r.profile_pic,
+        active_status: r.active_status,
 
         skills: (r.resourceSkills ?? [])
           .map(
@@ -1203,7 +1207,8 @@ export class TaskSpaceService implements OnModuleInit {
       .leftJoinAndSelect('resource.resourceSkills', 'rs')
       .leftJoinAndSelect('rs.skill', 'skill')
       .take(rows)
-      .orderBy('resource.id', 'DESC');
+      .orderBy('resource.active_status', 'DESC')
+      .addOrderBy('resource.id', 'DESC');
 
     if (resolvedCompanyId) {
       qb.andWhere('resource.companyId = :companyId', {
@@ -1229,6 +1234,7 @@ export class TaskSpaceService implements OnModuleInit {
       last_name: r.last_name,
       email: r.email,
       profile_pic: r.profile_pic,
+      active_status: r.active_status,
 
       skills: (r.resourceSkills ?? [])
         .map((rs: any) => (rs.skill as { name?: string } | null)?.name)
@@ -1278,6 +1284,7 @@ export class TaskSpaceService implements OnModuleInit {
         last_name: r.last_name,
         email: r.email,
         profile_pic: r.profile_pic,
+        active_status: r.active_status,
 
         skills: (r.resourceSkills ?? [])
           .map(
@@ -1323,6 +1330,7 @@ export class TaskSpaceService implements OnModuleInit {
         last_name: r.last_name,
         email: r.email,
         profile_pic: r.profile_pic,
+        active_status: r.active_status,
 
         skills: (r.resourceSkills ?? [])
           .map(

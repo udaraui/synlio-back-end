@@ -137,6 +137,51 @@ export class TicketSpaceService implements OnModuleInit {
         }
       }));
 
+    // Enrich members with active_status from resource table / user.isActive
+    const rawMembers = ticketSpace.members || [];
+    let resourceStatusByEmail = new Map<string, boolean>();
+    let resourceStatusByUserId = new Map<number, boolean>();
+    let resourceStatusById = new Map<number, boolean>();
+    if (rawMembers.length > 0 && ticketSpace.companyId) {
+      const resourceRows: {
+        id: number;
+        userId: number | null;
+        email: string | null;
+        active_status: boolean;
+      }[] = await this.entityManager.query(
+        `SELECT id, "userId", LOWER(email) as email, active_status FROM resource WHERE "companyId" = $1`,
+        [ticketSpace.companyId],
+      );
+      for (const r of resourceRows) {
+        resourceStatusById.set(Number(r.id), Boolean(r.active_status));
+        if (r.userId) {
+          resourceStatusByUserId.set(Number(r.userId), Boolean(r.active_status));
+        }
+        if (r.email) {
+          resourceStatusByEmail.set(r.email.trim(), Boolean(r.active_status));
+        }
+      }
+    }
+
+    const enrichedMembers = rawMembers.map((m) => {
+      const emailKey = m.userEmail ? m.userEmail.trim().toLowerCase() : '';
+      let isActive = true;
+      if (emailKey && resourceStatusByEmail.has(emailKey)) {
+        isActive = resourceStatusByEmail.get(emailKey)!;
+      } else if (m.userId && resourceStatusByUserId.has(Number(m.userId))) {
+        isActive = resourceStatusByUserId.get(Number(m.userId))!;
+      } else if (m.userId && resourceStatusById.has(Number(m.userId))) {
+        isActive = resourceStatusById.get(Number(m.userId))!;
+      } else if (m.user && typeof m.user.isActive === 'boolean') {
+        isActive = m.user.isActive;
+      }
+      return {
+        ...m,
+        active_status: isActive,
+        isActive,
+      };
+    });
+
     return {
       ticketSpace: {
         id: ticketSpace.id,
@@ -152,7 +197,7 @@ export class TicketSpaceService implements OnModuleInit {
       impacts: ticketSpace.ticketImpacts || [],
       queues: ticketSpace.ticketQueues || [],
       // departments: divisions || [],
-      members: ticketSpace.members,
+      members: enrichedMembers,
     };
   }
 
@@ -574,8 +619,8 @@ export class TicketSpaceService implements OnModuleInit {
 
     const ticketSpace = await this.entityManager.findOne(TicketSpace, {
       where,
-      relations: ['members'],
-      select: ['id'],
+      relations: ['members', 'members.user'],
+      select: ['id', 'companyId'],
     });
 
     if (!ticketSpace) {
@@ -584,6 +629,10 @@ export class TicketSpaceService implements OnModuleInit {
 
     if (ticketSpace.members && ticketSpace.members.length > 0) {
       await this.seedSingleTicketSpaceCache(id);
+      const refreshed = await this.redisService.getTicketSpaceConfig(id);
+      if (refreshed) {
+        return { members: (refreshed as { members?: unknown[] }).members || [] };
+      }
     }
 
     return {

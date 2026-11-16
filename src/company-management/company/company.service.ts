@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -6,12 +8,22 @@ import {
 } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { Company } from './company.entity';
-import { EntityManager, In, FindOptionsWhere } from 'typeorm';
+import { EntityManager, In, FindOptionsWhere, QueryFailedError } from 'typeorm';
 import { ResponseCompanyDto } from './dto/company.dto';
 import { ActiveStatus } from '../../common/enum/status.enum';
 import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 import { UserCompanyView } from '../../user-management/user/user-company-view/user-company.entity';
 import { User } from '../../user-management/user/user.entity';
+import { Division } from '../division/division.entity';
+import { Calendar } from '../../resource-management/calendar/calendar.entity';
+import { Resource } from '../../resource-management/resource/resource.entity';
+import { ResourcePool } from '../../resource-management/resource-pool/resource-pool.entity';
+import { Role } from '../../user-management/role/role.entity';
+import { UserCompanyRole } from '../../user-management/user/user-company-role.entity';
+import { TaskSpace } from '../../task-management/task-space/task-space.entity';
+import { TicketSpace } from '../../ticket-management/ticket-space/ticket-space.entity';
+import { Task } from '../../task-management/task/task.entity';
+import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { uploadToAzureCompanyLogo } from '../../common/azure/azure-image-upload';
 import { RedisService } from '../../redis/redis.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
@@ -332,52 +344,134 @@ export class CompanyService {
     return updated!;
   }
 
-  async deleteCompany(id: number, authUser: any, activeCompanyId?: number) {
+  async deleteCompany(
+    id: number,
+    _authUser: Record<string, unknown>,
+    activeCompanyId?: number,
+  ) {
     const targetId =
       activeCompanyId && activeCompanyId !== 0 ? activeCompanyId : id;
 
     const existing = await this.entityManager.findOne(Company, {
       where: { id: targetId },
-      relations: [
-        'users',
-        'divisions',
-        'calendars',
-        'resources',
-        'resourcepools',
-        'userCompanyRoles',
-        'roles',
-      ],
+      relations: ['users'],
     });
     if (!existing) {
-      throw new NotFoundException(`Company with id ${id} not found`);
+      throw new NotFoundException(`Company with ID ${id} not found`);
     }
 
-    // 2. Check if any associated entities exist
-    const activeRelations: string[] = [];
-    if (existing.users && existing.users.length > 0) activeRelations.push('users');
-    if (existing.divisions && existing.divisions.length > 0) activeRelations.push('divisions');
-    if (existing.calendars && existing.calendars.length > 0) activeRelations.push('calendars');
-    if (existing.resources && existing.resources.length > 0) activeRelations.push('resources');
-    if (existing.resourcepools && existing.resourcepools.length > 0) activeRelations.push('resourcepools');
-    if (existing.userCompanyRoles && existing.userCompanyRoles.length > 0) activeRelations.push('userCompanyRoles');
-    if (existing.roles && existing.roles.length > 0) activeRelations.push('roles');
+    // 1. Check all dependency relationships before attempting deletion
+    const [
+      divisionsCount,
+      calendarsCount,
+      resourcesCount,
+      resourcePoolsCount,
+      rolesCount,
+      userCompanyRolesCount,
+      taskSpacesCount,
+      ticketSpacesCount,
+      tasksCount,
+      ticketsCount,
+    ] = await Promise.all([
+      this.entityManager.count(Division, { where: { companyId: targetId } }),
+      this.entityManager.count(Calendar, {
+        where: { company: { id: targetId } },
+      }),
+      this.entityManager.count(Resource, { where: { companyId: targetId } }),
+      this.entityManager.count(ResourcePool, {
+        where: { company: { id: targetId } },
+      }),
+      this.entityManager.count(Role, { where: { companyId: targetId } }),
+      this.entityManager.count(UserCompanyRole, {
+        where: { companyId: targetId },
+      }),
+      this.entityManager.count(TaskSpace, { where: { companyId: targetId } }),
+      this.entityManager.count(TicketSpace, { where: { companyId: targetId } }),
+      this.entityManager.count(Task, { where: { companyId: targetId } }),
+      this.entityManager.count(Ticket, { where: { companyId: targetId } }),
+    ]);
 
-    // 3. Perform hard delete if clean, or soft delete if relations exist
-    if (activeRelations.length > 0) {
-      await this.entityManager.update(
-        Company,
-        { id: targetId },
-        {
-          isActive: ActiveStatus.BLOCK,
-          updatedBy: authUser.email,
+    const usersCount = existing.users?.length ?? 0;
+    const blockingReasons: string[] = [];
+
+    if (usersCount > 0) {
+      blockingReasons.push(`${usersCount} assigned user(s)`);
+    }
+    if (divisionsCount > 0) {
+      blockingReasons.push(`${divisionsCount} division(s)`);
+    }
+    if (rolesCount > 0) {
+      blockingReasons.push(`${rolesCount} role(s)`);
+    }
+    if (userCompanyRolesCount > 0 && usersCount === 0) {
+      blockingReasons.push(`${userCompanyRolesCount} user role assignment(s)`);
+    }
+    if (calendarsCount > 0) {
+      blockingReasons.push(`${calendarsCount} calendar(s)`);
+    }
+    if (resourcesCount > 0) {
+      blockingReasons.push(`${resourcesCount} resource(s)`);
+    }
+    if (resourcePoolsCount > 0) {
+      blockingReasons.push(`${resourcePoolsCount} resource pool(s)`);
+    }
+    if (taskSpacesCount > 0) {
+      blockingReasons.push(`${taskSpacesCount} task space(s)`);
+    }
+    if (ticketSpacesCount > 0) {
+      blockingReasons.push(`${ticketSpacesCount} ticket space(s)`);
+    }
+    if (tasksCount > 0) {
+      blockingReasons.push(`${tasksCount} task(s)`);
+    }
+    if (ticketsCount > 0) {
+      blockingReasons.push(`${ticketsCount} ticket(s)`);
+    }
+
+    if (blockingReasons.length > 0) {
+      throw new ConflictException({
+        status: 409,
+        error: 'Deletion Blocked',
+        message: `Cannot delete company "${existing.company}" because it is currently linked to ${blockingReasons.join(', ')}. Please remove or reassign these records first.`,
+        counts: {
+          usersCount,
+          divisionsCount,
+          rolesCount,
+          userCompanyRolesCount: usersCount === 0 ? userCompanyRolesCount : 0,
+          calendarsCount,
+          resourcesCount,
+          resourcePoolsCount,
+          taskSpacesCount,
+          ticketSpacesCount,
+          tasksCount,
+          ticketsCount,
         },
-      );
-      return {
-        message: `Company deactivated due to existing associated data: ${activeRelations.join(', ')}`,
-      };
+      });
     }
 
-    await this.entityManager.delete(Company, targetId);
-    return { message: 'Company permanently deleted' };
+    // 2. Attempt hard deletion with foreign key violation protection
+    try {
+      await this.entityManager.delete(Company, targetId);
+      return { message: `Company "${existing.company}" permanently deleted.` };
+    } catch (error: unknown) {
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as
+          | { code?: string; detail?: string; table?: string }
+          | undefined;
+        if (driverError?.code === '23503') {
+          const tableDetail = driverError.table
+            ? ` (referenced in "${driverError.table}")`
+            : '';
+          throw new ConflictException(
+            `Cannot delete company "${existing.company}" because it still has dependent records${tableDetail}. Please remove all associated records before deleting the company.`,
+          );
+        }
+      }
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : `Failed to delete company "${existing.company}".`,
+      );
+    }
   }
 }

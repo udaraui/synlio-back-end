@@ -55,9 +55,25 @@ export class ResourceService {
       await Promise.all(
         rows.map((r) => this.redisService.deleteTaskSpaceConfig(r.taskSpaceId)),
       );
+
+      const ticketRows: { ticketSpaceId: number }[] =
+        await this.entityManager.query(
+          `SELECT DISTINCT tsm."ticketSpaceId"
+           FROM ticket_space_member tsm
+           INNER JOIN resource r ON r.id = $1
+           WHERE tsm."userId" = r."userId"
+              OR tsm."userId" = r.id
+              OR (r.email IS NOT NULL AND LOWER(tsm."userEmail") = LOWER(r.email))`,
+          [resourceId],
+        );
+      await Promise.all(
+        ticketRows.map((tr) =>
+          this.redisService.deleteTicketSpaceConfig(tr.ticketSpaceId),
+        ),
+      );
     } catch (err) {
       console.error(
-        `[ResourceService] Failed to invalidate task space cache for resource ${resourceId}:`,
+        `[ResourceService] Failed to invalidate space cache for resource ${resourceId}:`,
         err,
       );
     }
@@ -1236,6 +1252,8 @@ export class ResourceService {
       updatedBy: authUser.email,
     });
 
+    void this.invalidateTaskSpaceCachesForResource(id);
+
     return {
       message: `Resource Pool status toggled to ${newIsActiveStatus ? 'Active' : 'Inactive'}`,
       newStatus: newIsActiveStatus,
@@ -1371,6 +1389,7 @@ export class ResourceService {
       last_name: r.last_name,
       email: r.email,
       profile_pic: r.profile_pic,
+      active_status: r.active_status,
       skills: (r.resourceSkills ?? [])
         .map((rs: any) => (rs.skill as { name?: string } | null)?.name)
         .filter((s): s is string => Boolean(s)),

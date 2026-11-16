@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { User } from './user.entity';
 import { UserRegistrationSource } from '../../common/enum/user-registration-source.enum';
 import { UserCompanyRole } from './user-company-role.entity';
-import { EntityManager, In } from 'typeorm';
+import { EntityManager, In, QueryFailedError } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { UserCompanyPrivilegeView } from './user-company-privilege-view/user-company-privilege.entity';
 import { UserCompanyView } from './user-company-view/user-company.entity';
@@ -22,6 +27,7 @@ import { Task } from '../../task-management/task/task.entity';
 import { Ticket } from '../../ticket-management/ticket/ticket.entity';
 import { TicketSpaceMember } from '../../ticket-management/ticket-space-member/ticket-space-member.entity';
 import { ResourceSkill } from '../../resource-management/resource/resource-skill.entity';
+import { Pulse } from '../../pulse/pulse.entity';
 import { PulseWeek } from '../../pulse/pulse-week.entity';
 import { OtpVerification } from '../../auth/otp-verification.entity';
 import { TaskSpace } from 'src/task-management/task-space/task-space.entity';
@@ -916,6 +922,22 @@ export class UserService {
         userId: id,
       });
 
+    // Build company-scoped task space query
+    const taskSpaceQuery = this.entityManager
+      .createQueryBuilder(TaskSpace, 'taskSpace')
+      .leftJoin('taskSpace.owners', 'owner')
+      .leftJoin('taskSpace.resources', 'resource')
+      .where('(owner.id = :userId OR resource.email = :email)', {
+        userId: id,
+        email: existingUser.email,
+      });
+
+    // Build company-scoped ticket space member query
+    const ticketSpaceQuery = this.entityManager
+      .createQueryBuilder(TicketSpaceMember, 'tsm')
+      .innerJoin('tsm.ticketSpace', 'space')
+      .where('tsm.userId = :userId', { userId: id });
+
     if (effectiveCompanyId) {
       taskQuery.andWhere('task.companyId = :companyId', {
         companyId: effectiveCompanyId,
@@ -923,11 +945,19 @@ export class UserService {
       ticketQuery.andWhere('ticket.companyId = :companyId', {
         companyId: effectiveCompanyId,
       });
+      taskSpaceQuery.andWhere('taskSpace.companyId = :companyId', {
+        companyId: effectiveCompanyId,
+      });
+      ticketSpaceQuery.andWhere('space.companyId = :companyId', {
+        companyId: effectiveCompanyId,
+      });
     }
 
-    const [tasksCount, ticketsCount] = await Promise.all([
+    const [tasksCount, ticketsCount, taskSpacesCount, ticketSpacesCount] = await Promise.all([
       taskQuery.getCount(),
       ticketQuery.getCount(),
+      taskSpaceQuery.getCount(),
+      ticketSpaceQuery.getCount(),
     ]);
 
     return {
@@ -936,245 +966,185 @@ export class UserService {
       resourcePoolsCount,
       tasksCount,
       ticketsCount,
+      taskSpacesCount,
+      ticketSpacesCount,
     };
   }
 
   async deleteUser(
     id: number,
-    authUser: any,
+    _authUser: { userId: number; email?: string } | Record<string, unknown>,
     activeCompanyId?: number,
-    deleteLinkedResources = false,
-    deleteResource = false,
+    _deleteLinkedResources = false,
+    _deleteResource = false,
   ) {
     if (!activeCompanyId || activeCompanyId === 0) {
       throw new BadRequestException('Active company ID is required to delete a user');
     }
 
-    const existingUser = await this.entityManager.findOne(User, {
-      where: { id, companies: { id: activeCompanyId } },
-      relations: ['companies'],
-    });
+    let isCompletelyDeleted = false;
+    let targetUserName = `User #${id}`;
 
-    if (!existingUser) {
-      throw new NotFoundException(`User with ID ${id} not found in this company`);
-    }
-
-    const resourcePoolRepository =
-      this.entityManager.getRepository(ResourcePool);
-
-    const resourcePoolWhere: any = { pool_owner: { id }, company: { id: activeCompanyId } };
-
-    // Build company-scoped task query
-    const taskQuery = this.entityManager
-      .createQueryBuilder(Task, 'task')
-      .leftJoin('task.assignee', 'assignee')
-      .leftJoin('task.coAssignees', 'coAssignees')
-      .leftJoin('task.members', 'members')
-      .where(
-        '(assignee.email = :email OR coAssignees.email = :email OR members.email = :email)',
-        { email: existingUser.email },
-      )
-      .andWhere('task.companyId = :companyId', {
-        companyId: activeCompanyId,
-      });
-
-    // Build company-scoped ticket query.
-    const ticketQuery = this.entityManager
-      .createQueryBuilder(Ticket, 'ticket')
-      .leftJoin('ticket.assignee', 'assignee')
-      .leftJoin('ticket.participants', 'participants')
-      .where('(assignee.userId = :userId OR participants.userId = :userId)', {
-        userId: id,
-      })
-      .andWhere('ticket.companyId = :companyId', {
-        companyId: activeCompanyId,
-      });
-
-    const [resourcePoolsCount, tasksCount, ticketsCount] = await Promise.all([
-      resourcePoolRepository.count({ where: resourcePoolWhere }),
-      taskQuery.getCount(),
-      ticketQuery.getCount(),
-    ]);
-
-    // --- 1. RESOURCE POOL OWNERSHIP — always a hard block ---
-    if (resourcePoolsCount > 0) {
-      return {
-        error: 'Cannot delete user: resource pool ownership must be reassigned first',
-        message: `User owns ${resourcePoolsCount} resource pool(s) in this company. Please reassign ownership before deleting`,
-        resourcePoolsCount,
-        status: 400,
-      };
-    }
-
-    // --- 2. TASKS / TICKETS — ask for confirmation unless caller already confirmed ---
-    if ((tasksCount > 0 || ticketsCount > 0) && !deleteLinkedResources && !deleteResource) {
-      return {
-        requiresConfirmation: true,
-        tasksCount,
-        ticketsCount,
-        message:
-          `User is linked to ${tasksCount} task(s) and ${ticketsCount} ticket(s) in this company` +
-          `Send the request again with deleteLinkedResources=true to unassign and proceed.`,
-      };
-    }
-
-    // --- 3. NULLIFY LINKED RECORDS (only when deleteLinkedResources=true or deleteResource=true) ---
-    if ((deleteLinkedResources || deleteResource) && (tasksCount > 0 || ticketsCount > 0)) {
+    try {
+      // 1. Single Atomic Transaction: wrap entire validation, deletion, and cleanup
       await this.entityManager.transaction(async (tem) => {
-        // Find the resource record for this user in the current company
-        const resourceWhere: any = { email: existingUser.email, companyId: activeCompanyId };
+        // Fetch the user with ALL their associated companies (do not filter the relation in WHERE)
+        const existingUser = await tem.findOne(User, {
+          where: { id },
+          relations: ['companies'],
+        });
+
+        if (!existingUser) {
+          throw new NotFoundException(`User with ID ${id} not found`);
+        }
+
+        const isMemberOfActiveCompany = (existingUser.companies ?? []).some(
+          (company) => Number(company.id) === Number(activeCompanyId),
+        );
+
+        if (!isMemberOfActiveCompany) {
+          throw new NotFoundException(
+            `User with ID ${id} not found in this company`,
+          );
+        }
+
+        targetUserName =
+          `${existingUser.first_name || ''} ${existingUser.last_name || ''}`.trim() ||
+          existingUser.email;
+
+        // 2. Strict Hard Blocks: Count linked active records in the active company
+        // (a) Resource Pools (as owner)
+        const resourcePoolsCount = await tem
+          .getRepository(ResourcePool)
+          .createQueryBuilder('rp')
+          .innerJoin('rp.pool_owner', 'poolOwner', 'poolOwner.id = :userId', { userId: id })
+          .innerJoin('rp.company', 'company', 'company.id = :companyId', { companyId: activeCompanyId })
+          .getCount();
+
+        // (b) Tasks (as assignee, co-assignee, or member)
+        const tasksCount = await tem
+          .createQueryBuilder(Task, 'task')
+          .leftJoin('task.assignee', 'assignee')
+          .leftJoin('task.coAssignees', 'coAssignees')
+          .leftJoin('task.members', 'members')
+          .where('task.companyId = :companyId', { companyId: activeCompanyId })
+          .andWhere(
+            '(assignee.email = :email OR task.assigneeEmail = :email OR coAssignees.email = :email OR members.email = :email)',
+            { email: existingUser.email },
+          )
+          .getCount();
+
+        // (c) Tickets (as assignee or participant)
+        const ticketsCount = await tem
+          .createQueryBuilder(Ticket, 'ticket')
+          .leftJoin('ticket.assignee', 'assignee')
+          .leftJoin('ticket.participants', 'participants')
+          .where('ticket.companyId = :companyId', { companyId: activeCompanyId })
+          .andWhere('(assignee.userId = :userId OR participants.userId = :userId)', {
+            userId: id,
+          })
+          .getCount();
+
+        // (d) Task Spaces (as owner or member)
+        const taskSpacesCount = await tem
+          .createQueryBuilder(TaskSpace, 'taskSpace')
+          .leftJoin('taskSpace.owners', 'owner')
+          .leftJoin('taskSpace.resources', 'resource')
+          .where('taskSpace.companyId = :companyId', { companyId: activeCompanyId })
+          .andWhere('(owner.id = :userId OR resource.email = :email)', {
+            userId: id,
+            email: existingUser.email,
+          })
+          .getCount();
+
+        // (e) Ticket Spaces (as member)
+        const ticketSpacesCount = await tem
+          .createQueryBuilder(TicketSpaceMember, 'tsm')
+          .innerJoin('tsm.ticketSpace', 'space')
+          .where('tsm.userId = :userId', { userId: id })
+          .andWhere('space.companyId = :companyId', { companyId: activeCompanyId })
+          .getCount();
+
+        // Hard block validation: If user is linked to ANY of these, immediately stop and throw ConflictException
+        if (
+          resourcePoolsCount > 0 ||
+          tasksCount > 0 ||
+          ticketsCount > 0 ||
+          taskSpacesCount > 0 ||
+          ticketSpacesCount > 0
+        ) {
+          const reasons: string[] = [];
+          if (resourcePoolsCount > 0) {
+            reasons.push(`${resourcePoolsCount} resource pool(s) as owner`);
+          }
+          if (tasksCount > 0) {
+            reasons.push(`${tasksCount} task(s) as assignee, co-assignee, or member`);
+          }
+          if (ticketsCount > 0) {
+            reasons.push(`${ticketsCount} ticket(s) as assignee or participant`);
+          }
+          if (taskSpacesCount > 0) {
+            reasons.push(`${taskSpacesCount} task space(s) as owner or member`);
+          }
+          if (ticketSpacesCount > 0) {
+            reasons.push(`${ticketSpacesCount} ticket space(s) as member`);
+          }
+
+          throw new ConflictException({
+            status: 409,
+            error: 'Cannot delete user due to active relationships',
+            message: `Cannot remove "${targetUserName}" because they are currently linked to ${reasons.join(', ')}. Please reassign or remove them from these records first.`,
+            counts: {
+              resourcePoolsCount,
+              tasksCount,
+              ticketsCount,
+              taskSpacesCount,
+              ticketSpacesCount,
+            },
+          });
+        }
+
+        // 3. Auto-Delete Pulse & PulseWeek records belonging to this user in the active company
+        const userPulseWeeks = await tem.find(PulseWeek, {
+          where: { userId: id, companyId: activeCompanyId },
+          select: ['id'],
+        });
+
+        if (userPulseWeeks.length > 0) {
+          const pulseWeekIds = userPulseWeeks.map((pw) => pw.id);
+          await tem
+            .createQueryBuilder()
+            .delete()
+            .from(Pulse)
+            .where('pulseWeekId IN (:...pulseWeekIds)', { pulseWeekIds })
+            .execute();
+
+          await tem.delete(PulseWeek, {
+            userId: id,
+            companyId: activeCompanyId,
+          });
+        }
+
+        // 4. Fix UserCompanyRole Deletion: proper relation targeting inside the transaction
+        await tem.delete(UserCompanyRole, {
+          user: { id },
+          company: { id: activeCompanyId },
+        });
+
+        // 5. Final Cleanup
+        // (a) Delete associated Resource profile and clear dangling references
         const userResource = await tem.findOne(Resource, {
-          where: resourceWhere,
+          where: { email: existingUser.email, companyId: activeCompanyId },
           select: ['id'],
         });
 
         if (userResource) {
           const resourceId = userResource.id as number;
 
-          // 3a. Nullify task assignee where this resource is the assignee
-          const assigneeTasksQb = tem
-            .createQueryBuilder(Task, 'task')
-            .innerJoin('task.assignee', 'assignee', 'assignee.id = :resourceId', { resourceId })
-            .andWhere('task.companyId = :companyId', { companyId: activeCompanyId })
-            .select('task.id', 'id');
-          const assigneeTasks = await assigneeTasksQb.getRawMany();
-          if (assigneeTasks.length > 0) {
-            const taskIds = assigneeTasks.map((t) => t.id);
-            await tem
-              .createQueryBuilder()
-              .update(Task)
-              .set({
-                assigneeId: null as any,
-                assigneeName: null as any,
-                assigneeEmail: null as any,
-                assigneeProfilePicUrl: null as any,
-                assigneeSkill: null as any,
-              })
-              .where('id IN (:...taskIds)', { taskIds })
-              .execute();
-          }
-
-          // 3b. Remove from co-assignees join table (tm_task_co_assignees)
-          const coAssigneeTasks = await tem
-            .createQueryBuilder(Task, 'task')
-            .innerJoin(
-              'task.coAssignees',
-              'coAssignee',
-              'coAssignee.id = :resourceId',
-              { resourceId },
-            )
-            .andWhere('task.companyId = :companyId', { companyId: activeCompanyId })
-            .select('task.id')
-            .getMany();
-          for (const task of coAssigneeTasks) {
-            await tem
-              .createQueryBuilder()
-              .relation(Task, 'coAssignees')
-              .of(task.id)
-              .remove(resourceId);
-          }
-
-          // 3c. Remove from members join table (tm_task_members)
-          const memberTasks = await tem
-            .createQueryBuilder(Task, 'task')
-            .innerJoin(
-              'task.members',
-              'member',
-              'member.id = :resourceId',
-              { resourceId },
-            )
-            .andWhere('task.companyId = :companyId', { companyId: activeCompanyId })
-            .select('task.id')
-            .getMany();
-          for (const task of memberTasks) {
-            await tem
-              .createQueryBuilder()
-              .relation(Task, 'members')
-              .of(task.id)
-              .remove(resourceId);
-          }
-        }
-
-        // 3d. Find the TicketSpaceMember records for this user (company-scoped via ticket space)
-        //     then nullify ticket assignee and remove from participants join table.
-        const spaceMemberships = await tem.find(TicketSpaceMember, {
-          where: { userId: id },
-          select: ['id'],
-        });
-        const memberIds = spaceMemberships.map((m) => m.id as number);
-
-        if (memberIds.length > 0) {
-          // Nullify assigneeId on tickets where this member is the assignee (company-scoped)
-          const assigneeTicketQb = tem
-            .createQueryBuilder(Ticket, 'ticket')
-            .innerJoin(
-              'ticket.assignee',
-              'assignee',
-              'assignee.userId = :userId',
-              { userId: id },
-            )
-            .andWhere('ticket.companyId = :companyId', {
-              companyId: activeCompanyId,
-            })
-            .select('ticket.id');
-          const assigneeTickets = await assigneeTicketQb.getMany();
-          if (assigneeTickets.length > 0) {
-            const ticketIds = assigneeTickets.map((t) => t.id);
-            await tem
-              .createQueryBuilder()
-              .update(Ticket)
-              .set({
-                assigneeId: null as any,
-                assigneeName: null as any,
-                assigneeEmail: null as any,
-                assigneeProfilePicUrl: null as any,
-              })
-              .where('id IN (:...ticketIds)', { ticketIds })
-              .execute();
-          }
-
-          // Remove from participants join table (ticket_participants)
-          const participantTicketQb = tem
-            .createQueryBuilder(Ticket, 'ticket')
-            .innerJoin(
-              'ticket.participants',
-              'participant',
-              'participant.userId = :userId',
-              { userId: id },
-            )
-            .andWhere('ticket.companyId = :companyId', {
-              companyId: activeCompanyId,
-            })
-            .select('ticket.id');
-          const participantTickets = await participantTicketQb.getMany();
-          for (const ticket of participantTickets) {
-            // Remove all memberIds belonging to this user from each ticket's participants
-            await tem
-              .createQueryBuilder()
-              .relation(Ticket, 'participants')
-              .of(ticket.id)
-              .remove(memberIds);
-          }
-        }
-      });
-    }
-
-    // --- 4. DELETE ASSOCIATED RESOURCE (only when deleteResource=true) ---
-    if (deleteResource) {
-      const resource = await this.entityManager.findOne(Resource, {
-        where: {
-          email: existingUser.email,
-          companyId: activeCompanyId,
-        },
-        select: ['id'],
-      });
-      if (resource) {
-        const resourceId = resource.id;
-        await this.entityManager.transaction(async (tem) => {
           // Cleanup ResourceSkill
           await tem.delete(ResourceSkill, { resourceId });
 
-          // Cleanup ResourcePool association
+          // Cleanup ResourcePool membership join table
           await tem
             .createQueryBuilder()
             .delete()
@@ -1182,85 +1152,159 @@ export class UserService {
             .where('resourceId = :resourceId', { resourceId })
             .execute();
 
-          // Cleanup reportingPersonId references
-          await tem.update(Resource, { reportingPersonId: resourceId }, { reportingPersonId: null });
+          // Cleanup TaskSpace resources join table
+          await tem
+            .createQueryBuilder()
+            .delete()
+            .from('task_space_resources')
+            .where('resourceId = :resourceId', { resourceId })
+            .execute();
 
-          // Cleanup PulseWeek references
-          await tem.getRepository(PulseWeek).update({ submittedToId: resourceId }, { submittedToId: null as any });
-          await tem.getRepository(PulseWeek).update({ approvedById: resourceId }, { approvedById: null as any });
+          // Clear reportingPersonId references on other resources
+          await tem
+            .createQueryBuilder()
+            .update(Resource)
+            .set({ reportingPersonId: () => 'NULL' })
+            .where('reportingPersonId = :resourceId', { resourceId })
+            .execute();
 
-          // Now delete Resource
+          // Clear PulseWeek references submittedToId and approvedById on other pulse weeks
+          await tem
+            .createQueryBuilder()
+            .update(PulseWeek)
+            .set({ submittedToId: () => 'NULL' })
+            .where('submittedToId = :resourceId', { resourceId })
+            .execute();
+          await tem
+            .createQueryBuilder()
+            .update(PulseWeek)
+            .set({ approvedById: () => 'NULL' })
+            .where('approvedById = :resourceId', { resourceId })
+            .execute();
+
+          // Delete Resource record
           await tem.delete(Resource, resourceId);
-        });
+        }
+
+        // (b) Remove user from company's divisions
+        const userDivisions = await tem
+          .createQueryBuilder(Division, 'division')
+          .innerJoin('division.users', 'user', 'user.id = :userId', { userId: id })
+          .where('division.companyId = :companyId', { companyId: activeCompanyId })
+          .select(['division.id'])
+          .getMany();
+
+        if (userDivisions.length > 0) {
+          await tem
+            .createQueryBuilder()
+            .relation(User, 'divisions')
+            .of(id)
+            .remove(userDivisions.map((d) => d.id));
+        }
+
+        // (c) Remove company from user.companies relation
+        await tem
+          .createQueryBuilder()
+          .relation(User, 'companies')
+          .of(id)
+          .remove(activeCompanyId);
+
+        // (d) Check remaining companies & handle user deletion / default company reset
+        const remainingCompanies = (existingUser.companies ?? []).filter(
+          (c) => Number(c.id) !== Number(activeCompanyId),
+        );
+
+        isCompletelyDeleted = remainingCompanies.length === 0;
+
+        if (isCompletelyDeleted) {
+          // Clean up any remaining non-cascading foreign key references before deleting the User record
+          const remainingPulseWeeks = await tem.find(PulseWeek, {
+            where: { userId: id },
+            select: ['id'],
+          });
+          if (remainingPulseWeeks.length > 0) {
+            const remainingPwIds = remainingPulseWeeks.map((pw) => pw.id);
+            await tem
+              .createQueryBuilder()
+              .delete()
+              .from(Pulse)
+              .where('pulseWeekId IN (:...remainingPwIds)', { remainingPwIds })
+              .execute();
+            await tem.delete(PulseWeek, { userId: id });
+          }
+
+          await tem
+            .createQueryBuilder()
+            .delete()
+            .from('note_shared_users')
+            .where('userId = :userId', { userId: id })
+            .execute();
+
+          await tem
+            .createQueryBuilder()
+            .delete()
+            .from('filter_template_shared_users')
+            .where('userId = :userId', { userId: id })
+            .execute();
+
+          await tem.query('UPDATE "email" SET "userId" = NULL WHERE "userId" = $1', [id]);
+          await tem.query(
+            'UPDATE "notification" SET "userId" = NULL WHERE "userId" = $1',
+            [id],
+          );
+
+          // User belonged ONLY to this company -> completely delete User record
+          await tem.delete(User, id);
+        } else {
+          // User belongs to other companies -> update defaultCompanyId if needed
+          if (Number(existingUser.defaultCompanyId) === Number(activeCompanyId)) {
+            const newDefaultId = remainingCompanies[0].id;
+            await tem.update(User, id, {
+              defaultCompanyId: newDefaultId,
+            });
+          }
+        }
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
       }
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as
+          | { code?: string; table?: string }
+          | undefined;
+        if (driverError?.code === '23503') {
+          throw new ConflictException(
+            `Cannot delete "${targetUserName}" because they are still referenced by active records${driverError.table ? ` in "${driverError.table}"` : ''}. Please reassign or remove those records first.`,
+          );
+        }
+      }
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : `Failed to delete user "${targetUserName}".`,
+      );
     }
 
-    // --- 5. REMOVE RELATION AND ROLES FOR THE COMPANY ---
-    // 1. Remove UserCompanyRole for this company
-    await this.entityManager.delete(UserCompanyRole, {
-      userId: id,
-      companyId: activeCompanyId,
-    });
-
-    // 2. Remove user from company's divisions
-    const userDivisions = await this.entityManager
-      .createQueryBuilder(Division, 'division')
-      .innerJoin('division.users', 'user', 'user.id = :userId', { userId: id })
-      .where('division.companyId = :companyId', { companyId: activeCompanyId })
-      .select(['division.id'])
-      .getMany();
-
-    if (userDivisions.length > 0) {
-      await this.entityManager
-        .createQueryBuilder()
-        .relation(User, 'divisions')
-        .of(id)
-        .remove(userDivisions.map((d) => d.id));
-    }
-
-    // 3. Remove user from company's task spaces
-    const userTaskSpaces = await this.entityManager
-      .createQueryBuilder(TaskSpace, 'taskSpace')
-      .innerJoin('taskSpace.owners', 'owner', 'owner.id = :userId', { userId: id })
-      .where('taskSpace.companyId = :companyId', { companyId: activeCompanyId })
-      .select(['taskSpace.id'])
-      .getMany();
-
-    if (userTaskSpaces.length > 0) {
-      await this.entityManager
-        .createQueryBuilder()
-        .relation(User, 'taskSpaces')
-        .of(id)
-        .remove(userTaskSpaces.map((ts) => ts.id));
-    }
-
-    // 4. Remove company from user.companies using relation builder to avoid clearing others
-    await this.entityManager
-      .createQueryBuilder()
-      .relation(User, 'companies')
-      .of(id)
-      .remove(activeCompanyId);
-
-    // Reset defaultCompanyId if it was the one being removed
-    const remainingCompanies = existingUser.companies.filter(
-      (c) => c.id !== activeCompanyId,
-    );
-
-    if (remainingCompanies.length === 0) {
-      // The user belonged ONLY to this company. We should completely delete the user.
-      await this.entityManager.delete(User, id);
+    // 6. Post-Transaction Cache Invalidation / Synchronization
+    if (isCompletelyDeleted) {
+      await this.authorizationService.deleteUserCompanyPrivilegesFromCache(id);
+      await this.redisService.deleteUserCompanies(id);
     } else {
-      if (existingUser.defaultCompanyId === activeCompanyId) {
-        const newDefaultId = remainingCompanies[0].id;
-        await this.entityManager.update(User, id, {
-          defaultCompanyId: newDefaultId as any,
-        });
-      }
-      
-      // Update cache since user still exists
       await this.authorizationService.updateUserCompanyPrivilegesIntoCache(id);
       await this.syncUserCompaniesCache(id);
     }
+
+    return {
+      success: true,
+      message: isCompletelyDeleted
+        ? `User "${targetUserName}" was permanently deleted as they had no other active company memberships.`
+        : `User "${targetUserName}" was successfully removed from this company.`,
+    };
   }
 
   async PasswordReset(

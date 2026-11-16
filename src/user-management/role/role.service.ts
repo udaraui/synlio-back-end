@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -7,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { Role } from './role.entity';
-import { EntityManager, In } from 'typeorm';
+import { EntityManager, FindOptionsWhere, In, QueryFailedError } from 'typeorm';
 import { Privilege } from '../privilege/privilege.entity';
 import { CreateRoleDto, ResponseRoleDto, UpdateRoleDto } from './dto/role.dto';
 import { AuthorizationService } from '../../authorization/authorization.service';
@@ -140,59 +141,83 @@ export class RoleService {
     };
   }
 
-  async deleteRole(id: number, authUser: any, activeCompanyId?: number) {
-    const where: any = { id };
+  async deleteRole(
+    id: number,
+    _authUser: Record<string, unknown>,
+    activeCompanyId?: number,
+  ) {
+    const where: FindOptionsWhere<Role> = { id };
     if (activeCompanyId && activeCompanyId !== 0) {
       where.companyId = activeCompanyId;
     }
 
-    const existingRole = await this.entityManager.findOne(Role, { where });
+    const existingRole = await this.entityManager.findOne(Role, {
+      where,
+      relations: ['privileges'],
+    });
     if (!existingRole) {
       throw new NotFoundException(`Role with ID ${id} not found`);
     }
 
-    // Repositories for blocking relationships
     const userCompanyRoleRepository =
       this.entityManager.getRepository(UserCompanyRole);
-    const privilegeRepository = this.entityManager.getRepository(Privilege);
 
-    // Concurrently count related entities in all relationships
-    const [relatedUCRCount] = await Promise.all([
-      // 1. Check UserCompanyRole relationship (OneToMany)
-      userCompanyRoleRepository.count({
-        where: { role: { id } },
-      }),
+    // 1. Check assigned users via UserCompanyRole before attempting deletion
+    const assignedUsersCount = await userCompanyRoleRepository.count({
+      where: { roleId: id },
+    });
 
-    ]);
-
-    const totalAssociatedRecords = relatedUCRCount;
-
-    // If children exist, return the detailed error message
-    if (totalAssociatedRecords > 0) {
-      const errorDetails: string[] = [];
-
-      if (relatedUCRCount > 0) {
-        errorDetails.push(
-          `- ${relatedUCRCount} associated user company role(s)`,
-        );
-      }
-
-      const detailedMessage = `Role is currently linked to the following entities:\n${errorDetails.join('\n')}\n\nPlease unassign this role from all related records first`;
-
-      return {
-        error: 'Cannot delete role due to active relationships',
-        message: detailedMessage,
-        status: 400,
-      };
+    if (assignedUsersCount > 0) {
+      throw new ConflictException({
+        status: 409,
+        error: 'Deletion Blocked',
+        message: `Cannot delete the role "${existingRole.role}" because it is currently assigned to ${assignedUsersCount} user(s). Please reassign or unassign them first.`,
+        counts: {
+          usersCount: assignedUsersCount,
+        },
+      });
     }
 
-    // If no children exist, proceed with deletion
-    await this.entityManager.delete(Role, id);
+    // 2. Clear role-privilege join records and delete role inside a transaction
+    try {
+      await this.entityManager.transaction(async (tem) => {
+        if (existingRole.privileges && existingRole.privileges.length > 0) {
+          await tem
+            .createQueryBuilder()
+            .relation(Role, 'privileges')
+            .of(id)
+            .remove(existingRole.privileges.map((priv) => priv.id));
+        }
 
-    return {
-      message: 'Role deleted',
-      status: 200,
-    };
+        await tem.delete(Role, id);
+      });
+
+      await this.authorizationService.invalidateCacheForRole(id);
+
+      return {
+        message: `Role "${existingRole.role}" has been deleted successfully.`,
+        status: 200,
+      };
+    } catch (error: unknown) {
+      if (error instanceof ConflictException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as
+          | { code?: string; table?: string }
+          | undefined;
+        if (driverError?.code === '23503') {
+          throw new ConflictException(
+            `Cannot delete the role "${existingRole.role}" because it is still referenced by other records${driverError.table ? ` in "${driverError.table}"` : ''}. Please remove all assignments before deleting this role.`,
+          );
+        }
+      }
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : `Failed to delete the role "${existingRole.role}".`,
+      );
+    }
   }
 
   async updateRole(id: number, updateRoleDto: UpdateRoleDto, authUser: any, activeCompanyId?: number) {

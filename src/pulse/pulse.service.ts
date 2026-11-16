@@ -1568,5 +1568,47 @@ export class PulseService {
       };
     });
   }
+
+  async checkLinkedPulse(
+    postType: string,
+    postId: number,
+    companyId: number,
+  ): Promise<{
+    isLinked: boolean;
+    linkedPulseCount: number;
+    linkedPulseWeekCount: number;
+  }> {
+    if (!companyId || !postId) {
+      return {
+        isLinked: false,
+        linkedPulseCount: 0,
+        linkedPulseWeekCount: 0,
+      };
+    }
+
+    const normalizedPostType =
+      postType === 'Task' || postType === 'TSK' ? PostType.TSK : PostType.TKT;
+
+    const raw = await this.entityManager
+      .createQueryBuilder(Pulse, 'pulse')
+      .select('COUNT(pulse.id)', 'linkedPulseCount')
+      .addSelect('COUNT(DISTINCT pulse.pulseWeekId)', 'linkedPulseWeekCount')
+      .where('pulse.companyId = :companyId', { companyId })
+      .andWhere('pulse.postType = :postType', { postType: normalizedPostType })
+      .andWhere('pulse.postId = :postId', { postId })
+      .getRawOne<{
+        linkedPulseCount: string;
+        linkedPulseWeekCount: string;
+      }>();
+
+    const linkedPulseCount = Number(raw?.linkedPulseCount ?? 0);
+    const linkedPulseWeekCount = Number(raw?.linkedPulseWeekCount ?? 0);
+
+    return {
+      isLinked: linkedPulseCount > 0,
+      linkedPulseCount,
+      linkedPulseWeekCount,
+    };
+  }
 }
 
