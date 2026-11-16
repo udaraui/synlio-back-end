@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EntityManager, In, ILike, IsNull } from 'typeorm';
+import { EntityManager, In, ILike, IsNull, Brackets } from 'typeorm';
 import { Task } from '../../task-management/task/task.entity';
 import { TaskSpace } from '../../task-management/task-space/task-space.entity';
 import { TaskSpaceStatusConfig } from '../../task-management/task-space-status-config/task-space-status-config.entity';
@@ -97,9 +97,16 @@ export class TaskMutationExecutorService {
     authUser?: any,
   ): Promise<TaskMutationDraftResult> {
     const rawTargets = mutationPayload.targets || [];
-    const targets = rawTargets.map((t) => {
-      const s = String(t).trim();
-      return (s.includes(':') ? s.split(':')[0].trim() : s).toUpperCase();
+    const targets: string[] = [];
+    const partialTargets: string[] = [];
+    rawTargets.forEach((t) => {
+      let s = String(t).trim();
+      if (s.includes(':')) s = s.split(':')[0].trim();
+      s = s.replace(/^-+/, '').toUpperCase();
+      if (s) {
+        targets.push(s);
+        partialTargets.push(`%-${s}`);
+      }
     });
     const targetTitles = rawTargets.map((t) => String(t).trim().toLowerCase());
     const changes = mutationPayload.changes || {};
@@ -129,16 +136,21 @@ export class TaskMutationExecutorService {
       };
     }
 
-    // Load tasks by code or name with tenancy filtering
+    // Load tasks by code or name with tenancy filtering (supports full or partial codes e.g. -E2-S2)
     const taskQuery = this.entityManager
       .createQueryBuilder(Task, 'task')
       .leftJoinAndSelect('task.taskSpace', 'taskSpace')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.parentTask', 'parentTask')
-      .where('(UPPER(task.code) IN (:...targets) OR LOWER(task.name) IN (:...targetTitles))', {
-        targets,
-        targetTitles,
-      });
+      .leftJoinAndSelect('task.hierarchyLevelConfig', 'hierarchyLevelConfig')
+      .where(
+        '(UPPER(task.code) IN (:...targets) OR LOWER(task.name) IN (:...targetTitles) OR UPPER(task.code) LIKE ANY(ARRAY[:...partialTargets]))',
+        {
+          targets: targets.length > 0 ? targets : [''],
+          targetTitles: targetTitles.length > 0 ? targetTitles : [''],
+          partialTargets: partialTargets.length > 0 ? partialTargets : ['%__NOMATCH__'],
+        },
+      );
 
     if (companyId && companyId !== 0) {
       taskQuery.andWhere('task.companyId = :companyId', { companyId });
@@ -342,10 +354,58 @@ export class TaskMutationExecutorService {
         }
       }
 
-      // 4. Dates & Effort
+      // 4. Dates & Effort (with Child Rollup Protection)
       let resolvedDueDate = changes.dueDate;
       let resolvedStartDate = changes.startDate;
       let resolvedEffort = changes.estimateEffort ? parseFloat(String(changes.estimateEffort)) : undefined;
+
+      let dateChangeRefusedReason: string | null = null;
+      if (resolvedStartDate || resolvedDueDate) {
+        // Query child tasks under this task to see if it has children and whether any child has scheduled dates
+        const childTasks = await this.entityManager
+          .createQueryBuilder(Task, 'child')
+          .where('child.parentTaskId = :taskId', { taskId: task.id })
+          .getMany();
+
+        if (childTasks.length > 0) {
+          const childrenWithDates = childTasks.filter(
+            (c) =>
+              (c.startDate && String(c.startDate).trim() !== '' && !isNaN(new Date(c.startDate).getTime())) ||
+              (c.dueDate && String(c.dueDate).trim() !== '' && !isNaN(new Date(c.dueDate).getTime())),
+          );
+
+          if (childrenWithDates.length > 0) {
+            // Task has children AND at least one child has start or due dates scheduled!
+            // Dates roll up automatically from children -> refuse modifying start / due date!
+            dateChangeRefusedReason = `Cannot change start or due date for **${task.code}** (${task.name}) because its dates roll up automatically from child tasks that have scheduled dates. To change this schedule, please update the child tasks directly.`;
+            warnings.push(dateChangeRefusedReason);
+            resolvedStartDate = task.startDate;
+            resolvedDueDate = task.dueDate;
+          }
+        }
+      }
+
+      // Check if other fields were requested
+      const otherChangesRequested = Boolean(
+        changes.statusName ||
+        changes.severityName ||
+        changes.assigneeName ||
+        changes.assignee ||
+        changes.name ||
+        changes.description ||
+        changes.estimateEffort,
+      );
+
+      if (dateChangeRefusedReason && !otherChangesRequested && tasks.length === 1) {
+        return {
+          action: 'UPDATE_TASK',
+          entityType: 'task',
+          status: 'REFUSED',
+          summary: dateChangeRefusedReason,
+          drafts: [],
+          warnings: [dateChangeRefusedReason],
+        };
+      }
 
       preparedDrafts.push({
         id: task.id,
@@ -368,11 +428,23 @@ export class TaskMutationExecutorService {
         parentTaskAssigneeProfilePicUrl: task.parentTask?.assigneeProfilePicUrl,
         parentTaskStartDate: task.parentTask?.startDate,
         parentTaskDueDate: task.parentTask?.dueDate,
-        hierarchyLevelConfigId: task.hierarchyLevelConfigId,
-        hierarchyLevelName: task.hierarchyLevelName,
-        hierarchyLevelColor: task.hierarchyLevelColor,
-        hierarchyLevelIcon: task.hierarchyLevelIcon,
-        hierarchyLevelSequence: task.hierarchyLevelSequence,
+        hierarchyLevelConfigId: task.hierarchyLevelConfigId ?? task.hierarchyLevelConfig?.id,
+        hierarchyLevelName: task.hierarchyLevelName || task.hierarchyLevelConfig?.name,
+        hierarchyLevelColor: task.hierarchyLevelColor || task.hierarchyLevelConfig?.color,
+        hierarchyLevelIcon: task.hierarchyLevelIcon || task.hierarchyLevelConfig?.icon,
+        hierarchyLevelSequence: task.hierarchyLevelSequence ?? task.hierarchyLevelConfig?.sequence,
+        statusId: resolvedStatusId ?? task.statusId,
+        statusName: resolvedStatusName ?? task.statusName,
+        statusColor: resolvedStatusColor ?? task.statusColor,
+        severityId: resolvedSeverityId ?? task.severityId,
+        severityName: resolvedSeverityName ?? task.severityName,
+        severityColor: resolvedSeverityColor ?? task.severityColor,
+        assigneeId: resolvedAssigneeId ?? task.assigneeId,
+        assigneeName: resolvedAssigneeName ?? task.assigneeName,
+        assigneeProfilePicUrl: resolvedAssigneePic ?? task.assigneeProfilePicUrl,
+        startDate: resolvedStartDate ?? task.startDate,
+        dueDate: resolvedDueDate ?? task.dueDate,
+        estimateEffort: resolvedEffort ?? task.estimateEffort,
         current: {
           statusId: task.statusId,
           statusName: task.statusName,
@@ -447,16 +519,25 @@ export class TaskMutationExecutorService {
     if (filter.status) {
       const statusTerm = String(filter.status).trim().toLowerCase();
       let baseTerm: string | null = null;
-      if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.TOSTART;
-      else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.PROCESSING;
-      else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.FINISHED;
+      if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
+        qb.andWhere('(task.statusBase != :finishedBase AND LOWER(task.statusName) NOT IN (:...finishedNames))', {
+          finishedBase: StatusBaseEnum.FINISHED,
+          finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
+        });
+      } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.TOSTART;
+      } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.PROCESSING;
+      } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.FINISHED;
+      }
 
       if (baseTerm) {
         qb.andWhere('(LOWER(task.statusName) = :status OR task.statusBase = :baseTerm)', {
           status: statusTerm,
           baseTerm,
         });
-      } else {
+      } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
         qb.andWhere('LOWER(task.statusName) = :status', { status: statusTerm });
       }
     }
@@ -477,8 +558,23 @@ export class TaskMutationExecutorService {
     const query = filter.query || filter.title || filter.name || filter.search;
     if (query) {
       const q = String(query).trim().toLowerCase();
-      // Search across ALL hierarchy levels (not just root tasks) for title + code
-      qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+      // Token-aware search for multi-word or fuzzy references
+      const rawTokens = q.split(/\s+/).filter((w) => w.length >= 3 && !['task', 'the', 'for', 'of', 'update', 'start', 'date', 'validate'].includes(w));
+      if (rawTokens.length > 0) {
+        qb.andWhere(
+          new Brackets((subQb) => {
+            subQb.where('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+            rawTokens.forEach((tok, idx) => {
+              const prefixTok = tok.slice(0, Math.min(tok.length, 5));
+              subQb.orWhere(`LOWER(task.name) LIKE :tok${idx} OR LOWER(task.code) LIKE :tok${idx}`, {
+                [`tok${idx}`]: `%${prefixTok}%`,
+              });
+            });
+          }),
+        );
+      } else {
+        qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+      }
     }
 
     const candidates = await qb.orderBy('task.id', 'DESC').take(10).getMany();

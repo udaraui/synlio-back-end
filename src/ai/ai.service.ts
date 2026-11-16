@@ -380,14 +380,32 @@ export class AiService {
                     targetSpaceId,
                   );
 
-                  // If user requested bulk mutation (all: true), prepare draft for all candidate tasks directly
-                  if (parsed.filter?.all && candidates.candidateTasks?.length > 0) {
+                  // If no candidates found, inform the user directly instead of presenting an empty Dismiss button
+                  if (!candidates.candidateTasks || candidates.candidateTasks.length === 0) {
+                    const queryTerm = parsed.filter?.query || parsed.filter?.title || parsed.filter?.name || '';
+                    const notFoundMsg = queryTerm
+                      ? `I could not find any task matching "${queryTerm}" in this space. Please check the task name or provide the task code (e.g. PTS-P8-T1).`
+                      : `No matching tasks found for the requested criteria in this space.`;
+                    this.push(`__FINAL__${notFoundMsg}\n\n`);
+                    buffer = '';
+                    return callback();
+                  }
+
+                  // If user requested bulk mutation (all: true) OR exactly 1 candidate matched, prepare draft directly
+                  const isSingleTaskMatch = candidates.candidateTasks?.length === 1;
+                  if ((parsed.filter?.all || isSingleTaskMatch) && candidates.candidateTasks?.length > 0) {
                     const batchTargets = candidates.candidateTasks.map((t: any) => t.code);
                     const mutationDraft = await taskMutationExecutor.prepareTaskMutationDraft(
                       { ...parsed, targets: batchTargets, status: 'READY' },
                       companyId,
                       user,
                     );
+
+                    if (mutationDraft.status === 'REFUSED') {
+                      this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                      buffer = '';
+                      return callback();
+                    }
 
                     let displaySummary = mutationDraft.summary;
                     if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
@@ -446,6 +464,9 @@ export class AiService {
                 }
 
                 let displaySummary = beforeMarker.trim();
+                if (!displaySummary || /which\s+(?:task|ticket|item|one)s?\b/i.test(displaySummary)) {
+                  displaySummary = mutationDraft.summary;
+                }
                 if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
                   const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
                   displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
@@ -474,8 +495,26 @@ export class AiService {
                   requestedSpaceId,
                 );
 
-                // If user requested bulk mutation (all: true), prepare draft for all candidate tickets directly
-                if (parsed.filter?.all && candidates.candidateTickets?.length > 0) {
+                // If no candidates found, inform the user directly instead of presenting an empty Dismiss button
+                if (!candidates.candidateTickets || candidates.candidateTickets.length === 0) {
+                  let notFoundMsg = `I could not find any tickets matching your criteria in this space.`;
+                  const filter = parsed.filter || {};
+                  const reqAssignee = filter.assignee;
+                  if (reqAssignee && ['unassigned', 'unassign', 'none', 'no one'].includes(String(reqAssignee).toLowerCase())) {
+                    notFoundMsg = `There are currently no unassigned tickets in this space. All tickets have an assigned owner.`;
+                  } else if (filter.status && filter.severity) {
+                    notFoundMsg = `There are no ${filter.severity} priority ${filter.status} tickets in this space.`;
+                  } else if (filter.query) {
+                    notFoundMsg = `I could not find any ticket matching "${filter.query}" in this space. Please verify the ticket name or code.`;
+                  }
+                  this.push(`__FINAL__${notFoundMsg}\n\n`);
+                  buffer = '';
+                  return callback();
+                }
+
+                // If user requested bulk mutation (all: true) OR exactly 1 candidate matched, prepare draft directly
+                const isSingleTicketMatch = candidates.candidateTickets?.length === 1;
+                if ((parsed.filter?.all || isSingleTicketMatch) && candidates.candidateTickets?.length > 0) {
                   const batchTargets = candidates.candidateTickets.map((t: any) => t.code);
                   const mutationDraft = await mutationExecutor.prepareTicketMutationDraft(
                     { ...parsed, targets: batchTargets, status: 'READY' },
@@ -569,17 +608,19 @@ export class AiService {
                 : (parsed.draft ? [parsed.draft] : (Array.isArray(parsed) ? parsed : [parsed]));
 
               // Domain Guardrail Checks (Option 2: Strict Domain Boundary)
-              if (
-                agent === 'project_analytics' &&
-                (parsed.action === 'CREATE_TICKET' ||
-                  parsed.entityType === 'ticket' ||
-                  (msgTicketCodes.length > 0 && msgTaskCodes.length === 0))
-              ) {
-                this.push(
-                  `__FINAL__I am your **Project Analyst**, specialized in tasks, milestones, and projects. To manage or analyze tickets and bugs, please switch to the **Ticket Analyst** from the agent selector or navigate to the Ticket Management page.\n\n`
-                );
-                buffer = '';
-                return callback();
+              if (agent === 'project_analytics') {
+                if (msgTicketCodes.length > 0 && msgTaskCodes.length === 0) {
+                  this.push(
+                    `__FINAL__I am your **Project Analyst**, specialized in tasks, milestones, and projects. To manage or analyze tickets and bugs, please switch to the **Ticket Analyst** from the agent selector or navigate to the Ticket Management page.\n\n`
+                  );
+                  buffer = '';
+                  return callback();
+                }
+                // When in Project Analyst, ensure drafts are treated as tasks (e.g. from document uploads)
+                if (parsed.action === 'CREATE_TICKET' || parsed.entityType === 'ticket') {
+                  parsed.action = 'CREATE_TASK';
+                  parsed.entityType = 'task';
+                }
               }
 
               if (

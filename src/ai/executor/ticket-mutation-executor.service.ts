@@ -898,16 +898,25 @@ export class TicketMutationExecutorService {
     if (filter.status) {
       const statusTerm = String(filter.status).trim().toLowerCase();
       let baseTerm: string | null = null;
-      if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.TOSTART;
-      else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.PROCESSING;
-      else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) baseTerm = StatusBaseEnum.FINISHED;
+      if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
+        qb.andWhere('(ticket.statusBase != :finishedBase AND LOWER(ticket.statusName) NOT IN (:...finishedNames))', {
+          finishedBase: StatusBaseEnum.FINISHED,
+          finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
+        });
+      } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.TOSTART;
+      } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.PROCESSING;
+      } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
+        baseTerm = StatusBaseEnum.FINISHED;
+      }
 
       if (baseTerm) {
         qb.andWhere('(LOWER(ticket.statusName) LIKE :status OR ticket.statusBase = :baseTerm)', {
           status: `%${statusTerm}%`,
           baseTerm,
         });
-      } else {
+      } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
         qb.andWhere('LOWER(ticket.statusName) LIKE :status', { status: `%${statusTerm}%` });
       }
     }
@@ -916,7 +925,9 @@ export class TicketMutationExecutorService {
     const requestedAssignee = filter.assignee;
     if (requestedAssignee) {
       const targetUser = String(requestedAssignee).trim().toLowerCase();
-      if (['me', 'myself', 'i', 'self'].includes(targetUser)) {
+      if (['unassigned', 'unassign', 'none', 'no one'].includes(targetUser) || filter.unassigned) {
+        qb.andWhere('(ticket.assigneeId IS NULL OR ticket.assigneeName IS NULL OR ticket.assigneeName = \'\')');
+      } else if (['me', 'myself', 'i', 'self'].includes(targetUser)) {
         const userEmail = (authUser?.email || authUser?.userEmail || '').trim().toLowerCase();
         const userId = Number(authUser?.userId || authUser?.id || 0);
         qb.andWhere('(LOWER(ticket.assigneeEmail) = :userEmail OR ticket.assigneeId = :userId)', {
@@ -930,7 +941,17 @@ export class TicketMutationExecutorService {
       }
     }
 
-    // 3. Filter by partial code or title if requested
+    // 4. Filter by queue if requested
+    const queueFilter = filter.queue || filter.queueName || filter.dept;
+    if (queueFilter) {
+      const qf = String(queueFilter).trim().toLowerCase();
+      qb.leftJoin('ticket.queue', 'ticketQueue');
+      qb.andWhere('(LOWER(ticket.queueName) LIKE :qf OR LOWER(ticketQueue.name) LIKE :qf)', {
+        qf: `%${qf}%`,
+      });
+    }
+
+    // 5. Filter by partial code or title if requested
     const query = filter.query || filter.title || filter.name || filter.search;
     if (query) {
       const q = String(query).trim().toLowerCase();
@@ -939,7 +960,7 @@ export class TicketMutationExecutorService {
       });
     }
 
-    // 4. Filter by severity if requested (e.g. "all high-priority tickets")
+    // 6. Filter by severity if requested (e.g. "all high-priority tickets")
     const severityFilter = filter.severity || filter.severityName || filter.priority;
     if (severityFilter) {
       const sev = String(severityFilter).trim().toLowerCase();
@@ -986,13 +1007,15 @@ export class TicketMutationExecutorService {
       actionText: `${actionLabel} all (${allCodes.join(', ')})`,
     });
 
-    // Options 1..5: first 4-5 tickets individually
+    // Options 1..5: first 4-5 tickets individually with metadata discriminators
     const firstFew = tickets.slice(0, 5);
     firstFew.forEach((t, idx) => {
       const titleShort = t.name && t.name.length > 25 ? t.name.slice(0, 25) + '...' : (t.name || 'Untitled');
+      const details = [t.statusName, t.severityName, t.queueName].filter(Boolean).join(' · ');
+      const labelText = details ? `${t.code}: ${titleShort} (${details})` : `${t.code}: ${titleShort}`;
       options.push({
         id: idx + 1,
-        label: `${t.code}: ${titleShort}`,
+        label: labelText,
         name: `${actionLabel} ${t.code}`,
         actionText: `${actionLabel} ${t.code}`,
       });

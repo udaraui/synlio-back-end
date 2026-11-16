@@ -674,12 +674,15 @@ export class TmTaskService {
     }
 
     // Roll up dates and status to parent(s)
+    const parentUpdates: any[] = [];
     const newParentTaskId = task.parentTaskId ?? null;
     if (newParentTaskId) {
-      await this.rollupParent(newParentTaskId, authUser);
+      const updates = await this.rollupParent(newParentTaskId, authUser);
+      if (Array.isArray(updates)) parentUpdates.push(...updates);
     }
     if (oldParentTaskId && oldParentTaskId !== newParentTaskId) {
-      await this.rollupParent(oldParentTaskId, authUser);
+      const oldUpdates = await this.rollupParent(oldParentTaskId, authUser);
+      if (Array.isArray(oldUpdates)) parentUpdates.push(...oldUpdates);
     }
 
     // Invalidate visibility caches
@@ -694,7 +697,11 @@ export class TmTaskService {
       authUser,
     );
 
-    return this.getTaskById(id);
+    const updatedTask = await this.getTaskById(id);
+    if (updatedTask) {
+      (updatedTask as any).parentUpdates = parentUpdates;
+    }
+    return updatedTask;
   }
 
   async getTaskBaseById(
