@@ -92,6 +92,8 @@ export class TaskMutationExecutorService {
       changes: Record<string, any>;
       summary?: string;
       attemptedHierarchyChange?: boolean;
+      filter?: Record<string, any>;
+      explicitTargets?: boolean;
     },
     companyId: number,
     authUser?: any,
@@ -111,6 +113,12 @@ export class TaskMutationExecutorService {
     const targetTitles = rawTargets.map((t) => String(t).trim().toLowerCase());
     const changes = mutationPayload.changes || {};
     const warnings: string[] = [];
+    const filterSeverity = String(
+      mutationPayload.filter?.severity ||
+      mutationPayload.filter?.severityName ||
+      mutationPayload.filter?.priority ||
+      '',
+    ).trim().toLowerCase();
 
     // Hierarchy Immutability Guard
     if (mutationPayload.attemptedHierarchyChange) {
@@ -141,6 +149,7 @@ export class TaskMutationExecutorService {
       .createQueryBuilder(Task, 'task')
       .leftJoinAndSelect('task.taskSpace', 'taskSpace')
       .leftJoinAndSelect('task.assignee', 'assignee')
+      .leftJoinAndSelect('task.severity', 'severity')
       .leftJoinAndSelect('task.parentTask', 'parentTask')
       .leftJoinAndSelect('parentTask.hierarchyLevelConfig', 'parentHierarchyLevelConfig')
       .leftJoinAndSelect('task.hierarchyLevelConfig', 'hierarchyLevelConfig')
@@ -158,13 +167,21 @@ export class TaskMutationExecutorService {
     }
 
     let tasks = await taskQuery.getMany();
+    if (!mutationPayload.explicitTargets && filterSeverity) {
+      tasks = tasks.filter((t: any) => {
+        const actualSev = String(t.severity?.name || t.severityName || '').trim().toLowerCase();
+        return Boolean(actualSev && actualSev.includes(filterSeverity));
+      });
+    }
 
     if (tasks.length === 0) {
       return {
         action: 'UPDATE_TASK',
         entityType: 'task',
         status: 'NEEDS_INPUT',
-        summary: `I could not find task(s) with code ${targets.join(', ')}. Please verify the task code.`,
+        summary: !mutationPayload.explicitTargets && filterSeverity
+          ? `There are no ${filterSeverity}-priority tasks matching your criteria in this space.`
+          : `I could not find task(s) with code ${targets.join(', ')}. Please verify the task code.`,
         drafts: [],
         warnings: [`Task(s) ${targets.join(', ')} not found.`],
       };
@@ -484,12 +501,57 @@ export class TaskMutationExecutorService {
       });
     }
 
+    const changeSummaryParts: string[] = [];
+    const seenChangeKeys = new Set<string>();
+    for (const d of preparedDrafts) {
+      if (changes.statusName && d.statusName && !seenChangeKeys.has(`status:${d.statusName}`)) {
+        seenChangeKeys.add(`status:${d.statusName}`);
+        changeSummaryParts.push(`status to **${d.statusName}**`);
+      }
+      if (changes.severityName && d.severityName && !seenChangeKeys.has(`severity:${d.severityName}`)) {
+        seenChangeKeys.add(`severity:${d.severityName}`);
+        changeSummaryParts.push(`priority to **${d.severityName}**`);
+      }
+      if (changes.assigneeName && d.assigneeName && !seenChangeKeys.has(`assignee:${d.assigneeName}`)) {
+        seenChangeKeys.add(`assignee:${d.assigneeName}`);
+        changeSummaryParts.push(`assignee to **${d.assigneeName}**`);
+      }
+      if ((changes.startDate || changes.dueDate) && !seenChangeKeys.has('dates')) {
+        seenChangeKeys.add('dates');
+        changeSummaryParts.push('dates');
+      }
+      if (changes.estimateEffort !== undefined && !seenChangeKeys.has('effort')) {
+        seenChangeKeys.add('effort');
+        changeSummaryParts.push(`effort to **${d.estimateEffort}h**`);
+      }
+    }
+    const changeClause = changeSummaryParts.length > 0 ? ` — setting ${changeSummaryParts.join(', ')}` : '';
+
     const taskLabels = preparedDrafts.map((d) => `**${d.code}**`).join(', ');
-    const displaySummary = isChildrenScope
-      ? `I've prepared updates for all ${preparedDrafts.length} child tasks of ${targets.join(', ')} (${taskLabels}). Please review the proposed changes below.`
-      : preparedDrafts.length === 1
-        ? `I've prepared the update for ${taskLabels}. Please review the proposed changes below.`
-        : `I've prepared updates for ${preparedDrafts.length} tasks (${taskLabels}). Please review the proposed changes below.`;
+    let displaySummary = '';
+    if (isChildrenScope) {
+      displaySummary = `I've prepared updates for all **${preparedDrafts.length} child tasks** of ${targets.join(', ')}${changeClause}. Please review the proposed changes below.`;
+    } else if (preparedDrafts.length === 1) {
+      const d = preparedDrafts[0];
+      displaySummary = `I've prepared the update for task **${d.code}** (${d.name})${changeClause}. Please review the proposed changes below.`;
+    } else if (preparedDrafts.length <= 3) {
+      displaySummary = `I've prepared updates for **${preparedDrafts.length} tasks** (${taskLabels})${changeClause}. Please review the proposed changes below.`;
+    } else {
+      const f = mutationPayload.filter || {};
+      const filterParts: string[] = [];
+      const fSev = f.severity || f.severityName || f.priority;
+      if (fSev) filterParts.push(`${String(fSev).trim()}-priority`);
+      if (f.status) filterParts.push(String(f.status).trim());
+      if (f.assignee && String(f.assignee).trim().toLowerCase() === 'unassigned') {
+        filterParts.push('unassigned');
+      }
+      const filterPrefix = filterParts.length > 0 ? `${filterParts.join(' ')} ` : '';
+      const assigneeSuffix =
+        f.assignee && String(f.assignee).trim().toLowerCase() !== 'unassigned'
+          ? ` assigned to **${f.assignee}**`
+          : '';
+      displaySummary = `I've prepared updates for **${preparedDrafts.length} ${filterPrefix}tasks**${assigneeSuffix}${changeClause}. Please review the proposed changes below.`;
+    }
 
     return {
       action: 'UPDATE_TASK',
@@ -522,68 +584,151 @@ export class TaskMutationExecutorService {
       qb.andWhere('task.taskSpaceId = :spaceId', { spaceId: targetSpaceId });
     }
 
-    if (filter.status) {
-      const statusTerm = String(filter.status).trim().toLowerCase();
-      let baseTerm: string | null = null;
-      if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
-        qb.andWhere('(task.statusBase != :finishedBase AND LOWER(task.statusName) NOT IN (:...finishedNames))', {
-          finishedBase: StatusBaseEnum.FINISHED,
-          finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
-        });
-      } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.TOSTART;
-      } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.PROCESSING;
-      } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.FINISHED;
-      }
-
-      if (baseTerm) {
-        qb.andWhere('(LOWER(task.statusName) = :status OR task.statusBase = :baseTerm)', {
-          status: statusTerm,
-          baseTerm,
-        });
-      } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
-        qb.andWhere('LOWER(task.statusName) = :status', { status: statusTerm });
-      }
-    }
-
-    if (filter.assignee) {
-      qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
-    }
-
-    // Filter by severity/priority if requested (e.g. "all low-priority tasks")
-    // The filter.severity is populated from the user's source-filter criterion (not the target change value)
+    let hasSeverityJoin = false;
     const severityFilter = filter.severity || filter.severityName || filter.priority;
-    if (severityFilter) {
-      const sev = String(severityFilter).trim().toLowerCase();
-      qb.leftJoin('task.severity', 'taskSeverity');
-      qb.andWhere('(LOWER(task.severityName) LIKE :severity OR LOWER(taskSeverity.name) LIKE :severity)', { severity: `%${sev}%` });
-    }
-
     const query = filter.query || filter.title || filter.name || filter.search;
-    if (query) {
-      const q = String(query).trim().toLowerCase();
-      // Token-aware search for multi-word or fuzzy references
-      const rawTokens = q.split(/\s+/).filter((w) => w.length >= 3 && !['task', 'the', 'for', 'of', 'update', 'start', 'date', 'validate'].includes(w));
-      if (rawTokens.length > 0) {
+    const hasFilterCriteria = Boolean(
+      filter.status || filter.assignee || severityFilter || query || filter.all,
+    );
+
+    const queryPlan = mutationPayload.queryPlan;
+    if (queryPlan?.conditions && Array.isArray(queryPlan.conditions) && queryPlan.conditions.length > 0) {
+      // ── Semantic Query Plan Interpreter (AI Query Builder) ──
+      for (const cond of queryPlan.conditions) {
+        const { field, operator, value } = cond;
+        if (!field) continue;
+
+        if (field === 'code') {
+          if (mutationPayload.explicitTargets === true || !hasFilterCriteria) {
+            const codes = (Array.isArray(value) ? value : [value]).map((c) => String(c).toUpperCase());
+            qb.andWhere('UPPER(task.code) IN (:...codes)', { codes });
+          }
+        } else if (field === 'statusBase') {
+          if (operator === 'in') {
+            const bases = Array.isArray(value) ? value : [value];
+            qb.andWhere('task.statusBase IN (:...bases)', { bases });
+          } else if (operator === 'neq') {
+            qb.andWhere('task.statusBase != :baseVal', { baseVal: value });
+          }
+        } else if (field === 'statusName' || field === 'status') {
+          if (operator === 'not_in') {
+            const names = (Array.isArray(value) ? value : [value]).map((n) => String(n).toLowerCase());
+            qb.andWhere('LOWER(task.statusName) NOT IN (:...namesLow)', { namesLow: names });
+          } else if (operator === 'ilike' || operator === 'like') {
+            qb.andWhere('LOWER(task.statusName) LIKE LOWER(:stVal)', { stVal: String(value) });
+          } else if (operator === 'eq') {
+            qb.andWhere('LOWER(task.statusName) = LOWER(:stVal)', { stVal: String(value) });
+          }
+        } else if (field === 'assignee' || field === 'assigneeName') {
+          if (operator === 'is_null' || value === 'unassigned') {
+            qb.andWhere('(task.assigneeId IS NULL OR task.assigneeName IS NULL OR task.assigneeName = :emptyStr)', { emptyStr: '' });
+          } else if (operator === 'eq' && (value === 'me' || value === 'self')) {
+            const authEmail = (authUser?.email || '').trim().toLowerCase();
+            const authName = (authUser?.name || '').trim().toLowerCase();
+            qb.andWhere('(LOWER(task.assigneeEmail) = :authEmail OR LOWER(task.assigneeName) = :authName)', { authEmail, authName });
+          } else {
+            const asgVal = String(value).replace(/^%+|%+$/g, '').trim();
+            qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assigneeVal)', { assigneeVal: `%${asgVal}%` });
+          }
+        } else if (field === 'severity' || field === 'severityName') {
+          if (!hasSeverityJoin) {
+            qb.leftJoin('task.severity', 'taskSeverity');
+            hasSeverityJoin = true;
+          }
+          const sevVal = String(value).replace(/^%+|%+$/g, '').trim();
+          qb.andWhere(
+            "LOWER(COALESCE(NULLIF(TRIM(taskSeverity.name), ''), task.severityName)) LIKE LOWER(:sevVal)",
+            { sevVal: `%${sevVal}%` },
+          );
+        } else if (field === 'name' || field === 'query' || field === 'title') {
+          const q = String(value).trim().toLowerCase();
+          const rawTokens = q.split(/\s+/).filter((w) => w.length >= 3 && !['task', 'the', 'for', 'of', 'update', 'start', 'date', 'validate'].includes(w));
+          if (rawTokens.length > 0) {
+            qb.andWhere(
+              new Brackets((subQb) => {
+                subQb.where('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+                rawTokens.forEach((tok, idx) => {
+                  const prefixTok = tok.slice(0, Math.min(tok.length, 5));
+                  subQb.orWhere(`LOWER(task.name) LIKE :tok${idx} OR LOWER(task.code) LIKE :tok${idx}`, {
+                    [`tok${idx}`]: `%${prefixTok}%`,
+                  });
+                });
+              }),
+            );
+          } else {
+            qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+          }
+        }
+      }
+    } else {
+      if (filter.status) {
+        const statusTerm = String(filter.status).trim().toLowerCase();
+        let baseTerm: string | null = null;
+        if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
+          qb.andWhere('(task.statusBase != :finishedBase AND LOWER(task.statusName) NOT IN (:...finishedNames))', {
+            finishedBase: StatusBaseEnum.FINISHED,
+            finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
+          });
+        } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.TOSTART;
+        } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.PROCESSING;
+        } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.FINISHED;
+        }
+
+        if (baseTerm) {
+          qb.andWhere('(LOWER(task.statusName) = :status OR task.statusBase = :baseTerm)', {
+            status: statusTerm,
+            baseTerm,
+          });
+        } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
+          qb.andWhere('LOWER(task.statusName) = :status', { status: statusTerm });
+        }
+      }
+
+      if (filter.assignee) {
+        qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
+      }
+
+      // Filter by severity/priority if requested (e.g. "all low-priority tasks")
+      if (severityFilter) {
+        const sev = String(severityFilter).trim().toLowerCase();
+        if (!hasSeverityJoin) {
+          qb.leftJoin('task.severity', 'taskSeverity');
+          hasSeverityJoin = true;
+        }
         qb.andWhere(
-          new Brackets((subQb) => {
-            subQb.where('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
-            rawTokens.forEach((tok, idx) => {
-              const prefixTok = tok.slice(0, Math.min(tok.length, 5));
-              subQb.orWhere(`LOWER(task.name) LIKE :tok${idx} OR LOWER(task.code) LIKE :tok${idx}`, {
-                [`tok${idx}`]: `%${prefixTok}%`,
-              });
-            });
-          }),
+          "LOWER(COALESCE(NULLIF(TRIM(taskSeverity.name), ''), task.severityName)) LIKE :severity",
+          { severity: `%${sev}%` },
         );
-      } else {
-        qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+      }
+
+      if (query) {
+        const q = String(query).trim().toLowerCase();
+        // Token-aware search for multi-word or fuzzy references
+        const rawTokens = q.split(/\s+/).filter((w) => w.length >= 3 && !['task', 'the', 'for', 'of', 'update', 'start', 'date', 'validate'].includes(w));
+        if (rawTokens.length > 0) {
+          qb.andWhere(
+            new Brackets((subQb) => {
+              subQb.where('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+              rawTokens.forEach((tok, idx) => {
+                const prefixTok = tok.slice(0, Math.min(tok.length, 5));
+                subQb.orWhere(`LOWER(task.name) LIKE :tok${idx} OR LOWER(task.code) LIKE :tok${idx}`, {
+                  [`tok${idx}`]: `%${prefixTok}%`,
+                });
+              });
+            }),
+          );
+        } else {
+          qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
+        }
       }
     }
 
-    const candidates = await qb.orderBy('task.id', 'DESC').take(10).getMany();
+    const isBulkScope = queryPlan?.targetScope === 'all' || filter.all === true;
+    const taskLimit = isBulkScope ? 50 : 10;
+    const candidates = await qb.orderBy('task.id', 'DESC').take(taskLimit).getMany();
 
     // Confidence guard: when searching by title, filter out candidates with low title similarity
     // to avoid returning completely unrelated tasks (e.g. "Untitled Task" for "Ticker implementation")

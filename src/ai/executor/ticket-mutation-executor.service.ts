@@ -600,6 +600,8 @@ export class TicketMutationExecutorService {
       changes: Record<string, any>;
       summary?: string;
       tickets?: any[];
+      filter?: Record<string, any>;
+      explicitTargets?: boolean;
     },
     companyId: number,
     allowedTicketSpaceIds: number[],
@@ -608,6 +610,12 @@ export class TicketMutationExecutorService {
     const targets = mutationPayload.targets || [];
     const changes = mutationPayload.changes || {};
     const warnings: string[] = [];
+    const filterSeverity = String(
+      mutationPayload.filter?.severity ||
+      mutationPayload.filter?.severityName ||
+      mutationPayload.filter?.priority ||
+      '',
+    ).trim().toLowerCase();
 
     const draftPromises = targets.map(async (targetCode) => {
       let codeClean = String(targetCode).trim();
@@ -634,6 +642,13 @@ export class TicketMutationExecutorService {
       if (!ticket) {
         warnings.push(`Ticket "${codeClean}" was not found.`);
         return null;
+      }
+
+      if (!mutationPayload.explicitTargets && filterSeverity) {
+        const actualSeverity = String(ticket.severity?.name || ticket.severityName || '').trim().toLowerCase();
+        if (!actualSeverity || !actualSeverity.includes(filterSeverity)) {
+          return null;
+        }
       }
 
       const spaceId = Number(ticket.ticketSpaceId);
@@ -837,14 +852,57 @@ export class TicketMutationExecutorService {
 
     const isAllUnrecognized = allUnrecognized.length > 0 && allRecognized.length === 0;
 
+    const changeSummaryParts: string[] = [];
+    const seenChangeKeys = new Set<string>();
+    for (const r of allRecognized) {
+      const key = `${r.field}:${r.value}`;
+      if (seenChangeKeys.has(key)) continue;
+      seenChangeKeys.add(key);
+      const fieldLabel = r.field === 'severity' ? 'priority' : r.label.toLowerCase();
+      changeSummaryParts.push(`${fieldLabel} to **${r.value}**`);
+    }
+    const changeClause = changeSummaryParts.length > 0 ? ` — setting ${changeSummaryParts.join(', ')}` : '';
+
     let summary = '';
-    if (drafts.length > 0) {
-      summary = `I've prepared the updates for **${drafts.map((d) => d.code).join(', ')}**. Please review and confirm below.`;
+    if (drafts.length === 1) {
+      const d = drafts[0];
+      summary = `I've prepared the update for ticket **${d.code}** (${d.name})${changeClause}. Please review and confirm in the table below.`;
+    } else if (drafts.length > 1) {
+      const f = mutationPayload.filter || {};
+      const filterParts: string[] = [];
+      const fSev = f.severity || f.severityName || f.priority;
+      if (fSev) filterParts.push(`${String(fSev).trim()}-priority`);
+      if (f.status) filterParts.push(String(f.status).trim());
+      if (f.assignee && String(f.assignee).trim().toLowerCase() === 'unassigned') {
+        filterParts.push('unassigned');
+      }
+      const filterPrefix = filterParts.length > 0 ? `${filterParts.join(' ')} ` : '';
+      const assigneeSuffix =
+        f.assignee && String(f.assignee).trim().toLowerCase() !== 'unassigned'
+          ? ` assigned to **${f.assignee}**`
+          : '';
+
+      const typeCounts = new Map<string, number>();
+      for (const d of drafts) {
+        const tName = String(d.ticketTypeName || '').trim();
+        if (tName) typeCounts.set(tName, (typeCounts.get(tName) || 0) + 1);
+      }
+      const breakdownParts = Array.from(typeCounts.entries()).map(([tName, cnt]) => {
+        const plural = cnt === 1 ? tName : (tName.endsWith('s') ? tName : `${tName}s`);
+        return `${cnt} ${plural}`;
+      });
+      const breakdownStr = breakdownParts.length > 0 ? ` (${breakdownParts.join(', ')})` : '';
+
+      summary = `I've prepared updates for **${drafts.length} ${filterPrefix}tickets**${breakdownStr}${assigneeSuffix}${changeClause}. Please review and confirm the changes in the table below.`;
     } else if (targets.length > 0) {
-      const notFoundList = targets.map((t) => `**${t}**`).join(', ');
-      summary = targets.length === 1
-        ? `I couldn't find ticket ${notFoundList} in this space. Please double-check the ticket code and try again.`
-        : `None of the requested tickets (${notFoundList}) could be found in this space. Please double-check the ticket codes and try again.`;
+      if (!mutationPayload.explicitTargets && filterSeverity) {
+        summary = `There are no ${filterSeverity}-priority tickets matching your criteria in this space.`;
+      } else {
+        const notFoundList = targets.map((t) => `**${t}**`).join(', ');
+        summary = targets.length === 1
+          ? `I couldn't find ticket ${notFoundList} in this space. Please double-check the ticket code and try again.`
+          : `None of the requested tickets (${notFoundList}) could be found in this space. Please double-check the ticket codes and try again.`;
+      }
     } else {
       summary = mutationPayload.summary || 'Which ticket would you like to update? Please provide the ticket code (e.g. PTS-12).';
     }
@@ -894,83 +952,190 @@ export class TicketMutationExecutorService {
       .where('ticket.companyId = :companyId', { companyId })
       .andWhere('ticket.ticketSpaceId = :spaceId', { spaceId });
 
-    // 2. Filter by status if requested
-    if (filter.status) {
-      const statusTerm = String(filter.status).trim().toLowerCase();
-      let baseTerm: string | null = null;
-      if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
-        qb.andWhere('(ticket.statusBase != :finishedBase AND LOWER(ticket.statusName) NOT IN (:...finishedNames))', {
-          finishedBase: StatusBaseEnum.FINISHED,
-          finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
-        });
-      } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.TOSTART;
-      } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.PROCESSING;
-      } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
-        baseTerm = StatusBaseEnum.FINISHED;
-      }
+    let hasSeverityJoin = false;
+    let hasTypeJoin = false;
+    let hasQueueJoin = false;
 
-      if (baseTerm) {
-        qb.andWhere('(LOWER(ticket.statusName) LIKE :status OR ticket.statusBase = :baseTerm)', {
-          status: `%${statusTerm}%`,
-          baseTerm,
-        });
-      } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
-        qb.andWhere('LOWER(ticket.statusName) LIKE :status', { status: `%${statusTerm}%` });
-      }
-    }
-
-    // 3. Filter by Assignee if requested
     const requestedAssignee = filter.assignee;
-    if (requestedAssignee) {
-      const targetUser = String(requestedAssignee).trim().toLowerCase();
-      if (['unassigned', 'unassign', 'none', 'no one'].includes(targetUser) || filter.unassigned) {
-        qb.andWhere('(ticket.assigneeId IS NULL OR ticket.assigneeName IS NULL OR ticket.assigneeName = \'\')');
-      } else if (['me', 'myself', 'i', 'self'].includes(targetUser)) {
-        const userEmail = (authUser?.email || authUser?.userEmail || '').trim().toLowerCase();
-        const userId = Number(authUser?.userId || authUser?.id || 0);
-        qb.andWhere('(LOWER(ticket.assigneeEmail) = :userEmail OR ticket.assigneeId = :userId)', {
-          userEmail,
-          userId,
+    const severityFilter = filter.severity || filter.severityName || filter.priority;
+    const queueFilter = filter.queue || filter.queueName || filter.dept;
+    const typeFilter = filter.ticketType || filter.type;
+    const query = filter.query || filter.title || filter.name || filter.search;
+    const hasFilterCriteria = Boolean(
+      filter.status || requestedAssignee || severityFilter || queueFilter || typeFilter || query || filter.all,
+    );
+
+    const queryPlan = mutationPayload.queryPlan;
+    if (queryPlan?.conditions && Array.isArray(queryPlan.conditions) && queryPlan.conditions.length > 0) {
+      // ── Semantic Query Plan Interpreter (AI Query Builder) ──
+      for (const cond of queryPlan.conditions) {
+        const { field, operator, value } = cond;
+        if (!field) continue;
+
+        if (field === 'code') {
+          if (mutationPayload.explicitTargets === true || !hasFilterCriteria) {
+            const codes = (Array.isArray(value) ? value : [value]).map((c) => String(c).toUpperCase());
+            qb.andWhere('UPPER(ticket.code) IN (:...codes)', { codes });
+          }
+        } else if (field === 'statusBase') {
+          if (operator === 'in') {
+            const bases = Array.isArray(value) ? value : [value];
+            qb.andWhere('ticket.statusBase IN (:...bases)', { bases });
+          } else if (operator === 'neq') {
+            qb.andWhere('ticket.statusBase != :baseVal', { baseVal: value });
+          }
+        } else if (field === 'statusName' || field === 'status') {
+          if (operator === 'not_in') {
+            const names = (Array.isArray(value) ? value : [value]).map((n) => String(n).toLowerCase());
+            qb.andWhere('LOWER(ticket.statusName) NOT IN (:...namesLow)', { namesLow: names });
+          } else if (operator === 'ilike' || operator === 'like') {
+            qb.andWhere('LOWER(ticket.statusName) LIKE LOWER(:stVal)', { stVal: String(value) });
+          } else if (operator === 'eq') {
+            qb.andWhere('LOWER(ticket.statusName) = LOWER(:stVal)', { stVal: String(value) });
+          }
+        } else if (field === 'assignee' || field === 'assigneeName') {
+          if (operator === 'is_null' || value === 'unassigned') {
+            qb.andWhere('(ticket.assigneeId IS NULL OR ticket.assigneeName IS NULL OR ticket.assigneeName = :emptyStr)', { emptyStr: '' });
+          } else if (operator === 'eq' && (value === 'me' || value === 'self')) {
+            const userEmail = (authUser?.email || authUser?.userEmail || '').trim().toLowerCase();
+            const userId = Number(authUser?.userId || authUser?.id || 0);
+            qb.andWhere('(LOWER(ticket.assigneeEmail) = :userEmail OR ticket.assigneeId = :userId)', { userEmail, userId });
+          } else {
+            const asgVal = String(value).replace(/^%+|%+$/g, '').trim();
+            qb.andWhere('LOWER(ticket.assigneeName) LIKE LOWER(:assigneeLike)', { assigneeLike: `%${asgVal}%` });
+          }
+        } else if (field === 'severity' || field === 'severityName') {
+          if (!hasSeverityJoin) {
+            qb.leftJoin('ticket.severity', 'ticketSeverity');
+            hasSeverityJoin = true;
+          }
+          const sevVal = String(value).replace(/^%+|%+$/g, '').trim();
+          qb.andWhere(
+            "LOWER(COALESCE(NULLIF(TRIM(ticketSeverity.name), ''), ticket.severityName)) LIKE LOWER(:sev)",
+            { sev: `%${sevVal}%` },
+          );
+        } else if (field === 'ticketType' || field === 'ticketTypeName') {
+          if (!hasTypeJoin) {
+            qb.leftJoin('ticket.ticketType', 'ticketType');
+            hasTypeJoin = true;
+          }
+          const ttVal = String(value).replace(/^%+|%+$/g, '').trim();
+          qb.andWhere(
+            "LOWER(COALESCE(NULLIF(TRIM(ticketType.name), ''), ticket.ticketTypeName)) LIKE LOWER(:tt)",
+            { tt: `%${ttVal}%` },
+          );
+        } else if (field === 'queue' || field === 'queueName') {
+          if (!hasQueueJoin) {
+            qb.leftJoin('ticket.queue', 'ticketQueue');
+            hasQueueJoin = true;
+          }
+          const qfVal = String(value).replace(/^%+|%+$/g, '').trim();
+          qb.andWhere(
+            "LOWER(COALESCE(NULLIF(TRIM(ticketQueue.name), ''), ticket.queueName)) LIKE LOWER(:qf)",
+            { qf: `%${qfVal}%` },
+          );
+        } else if (field === 'name' || field === 'query' || field === 'title') {
+          const q = String(value).trim().toLowerCase();
+          qb.andWhere('(LOWER(ticket.code) LIKE :q OR LOWER(ticket.name) LIKE :q)', { q: `%${q}%` });
+        }
+      }
+    } else {
+      if (filter.status) {
+        const statusTerm = String(filter.status).trim().toLowerCase();
+        let baseTerm: string | null = null;
+        if (statusTerm === 'unresolved' || statusTerm === 'not resolved' || statusTerm === 'active') {
+          qb.andWhere('(ticket.statusBase != :finishedBase AND LOWER(ticket.statusName) NOT IN (:...finishedNames))', {
+            finishedBase: StatusBaseEnum.FINISHED,
+            finishedNames: ['resolved', 'closed', 'done', 'cancelled', 'completed'],
+          });
+        } else if (/^(open|todo|to\s*do|to\s*start|new|backlog)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.TOSTART;
+        } else if (/^(in\s*progress|ongoing|processing|in\s*review)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.PROCESSING;
+        } else if (/^(done|closed|resolved|completed)$/i.test(statusTerm)) {
+          baseTerm = StatusBaseEnum.FINISHED;
+        }
+
+        if (baseTerm) {
+          qb.andWhere('(LOWER(ticket.statusName) LIKE :status OR ticket.statusBase = :baseTerm)', {
+            status: `%${statusTerm}%`,
+            baseTerm,
+          });
+        } else if (statusTerm !== 'unresolved' && statusTerm !== 'not resolved' && statusTerm !== 'active') {
+          qb.andWhere('LOWER(ticket.statusName) LIKE :status', { status: `%${statusTerm}%` });
+        }
+      }
+
+      // 3. Filter by Assignee if requested
+      if (requestedAssignee) {
+        const targetUser = String(requestedAssignee).trim().toLowerCase();
+        if (['unassigned', 'unassign', 'none', 'no one'].includes(targetUser) || filter.unassigned) {
+          qb.andWhere('(ticket.assigneeId IS NULL OR ticket.assigneeName IS NULL OR ticket.assigneeName = \'\')');
+        } else if (['me', 'myself', 'i', 'self'].includes(targetUser)) {
+          const userEmail = (authUser?.email || authUser?.userEmail || '').trim().toLowerCase();
+          const userId = Number(authUser?.userId || authUser?.id || 0);
+          qb.andWhere('(LOWER(ticket.assigneeEmail) = :userEmail OR ticket.assigneeId = :userId)', {
+            userEmail,
+            userId,
+          });
+        } else {
+          qb.andWhere('LOWER(ticket.assigneeName) LIKE :assigneeLike', {
+            assigneeLike: `%${targetUser}%`,
+          });
+        }
+      }
+
+      // 4. Filter by queue if requested
+      if (queueFilter) {
+        const qf = String(queueFilter).trim().toLowerCase();
+        if (!hasQueueJoin) {
+          qb.leftJoin('ticket.queue', 'ticketQueue');
+          hasQueueJoin = true;
+        }
+        qb.andWhere(
+          "LOWER(COALESCE(NULLIF(TRIM(ticketQueue.name), ''), ticket.queueName)) LIKE :qf",
+          { qf: `%${qf}%` },
+        );
+      }
+
+      // 5. Filter by ticket type if requested
+      if (typeFilter) {
+        const tt = String(typeFilter).trim().toLowerCase();
+        if (!hasTypeJoin) {
+          qb.leftJoin('ticket.ticketType', 'ticketType');
+          hasTypeJoin = true;
+        }
+        qb.andWhere(
+          "LOWER(COALESCE(NULLIF(TRIM(ticketType.name), ''), ticket.ticketTypeName)) LIKE :tt",
+          { tt: `%${tt}%` },
+        );
+      }
+
+      // 6. Filter by partial code or title if requested
+      if (query) {
+        const q = String(query).trim().toLowerCase();
+        qb.andWhere('(LOWER(ticket.code) LIKE :q OR LOWER(ticket.name) LIKE :q)', {
+          q: `%${q}%`,
         });
-      } else {
-        qb.andWhere('LOWER(ticket.assigneeName) LIKE :assigneeLike', {
-          assigneeLike: `%${targetUser}%`,
-        });
+      }
+
+      // 7. Filter by severity if requested (e.g. "all high-priority tickets")
+      if (severityFilter) {
+        const sev = String(severityFilter).trim().toLowerCase();
+        if (!hasSeverityJoin) {
+          qb.leftJoin('ticket.severity', 'ticketSeverity');
+          hasSeverityJoin = true;
+        }
+        qb.andWhere(
+          "LOWER(COALESCE(NULLIF(TRIM(ticketSeverity.name), ''), ticket.severityName)) LIKE :sev",
+          { sev: `%${sev}%` },
+        );
       }
     }
 
-    // 4. Filter by queue if requested
-    const queueFilter = filter.queue || filter.queueName || filter.dept;
-    if (queueFilter) {
-      const qf = String(queueFilter).trim().toLowerCase();
-      qb.leftJoin('ticket.queue', 'ticketQueue');
-      qb.andWhere('(LOWER(ticket.queueName) LIKE :qf OR LOWER(ticketQueue.name) LIKE :qf)', {
-        qf: `%${qf}%`,
-      });
-    }
-
-    // 5. Filter by partial code or title if requested
-    const query = filter.query || filter.title || filter.name || filter.search;
-    if (query) {
-      const q = String(query).trim().toLowerCase();
-      qb.andWhere('(LOWER(ticket.code) LIKE :q OR LOWER(ticket.name) LIKE :q)', {
-        q: `%${q}%`,
-      });
-    }
-
-    // 6. Filter by severity if requested (e.g. "all high-priority tickets")
-    const severityFilter = filter.severity || filter.severityName || filter.priority;
-    if (severityFilter) {
-      const sev = String(severityFilter).trim().toLowerCase();
-      qb.leftJoin('ticket.severity', 'ticketSeverity');
-      qb.andWhere('(LOWER(ticket.severityName) LIKE :sev OR LOWER(ticketSeverity.name) LIKE :sev)', {
-        sev: `%${sev}%`,
-      });
-    }
-
-    qb.orderBy('ticket.id', 'DESC').take(15);
+    const isBulkScope = queryPlan?.targetScope === 'all' || filter.all === true;
+    const ticketLimit = isBulkScope ? 50 : 15;
+    qb.orderBy('ticket.id', 'DESC').take(ticketLimit);
     const tickets = await qb.getMany();
 
     if (tickets.length === 0) {

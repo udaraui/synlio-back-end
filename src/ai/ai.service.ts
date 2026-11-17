@@ -365,7 +365,30 @@ export class AiService {
 
               if (isTaskMutation) {
                 // Task Mutation Logic
-                if (targets.length === 0 || parsed.status === 'NEEDS_INPUT') {
+                const hasExplicitTaskCodes = msgTaskCodes.length > 0 || parsed.explicitTargets === true;
+                const taskFilter = parsed.filter || {};
+                const hasTaskFilter = Boolean(
+                  taskFilter.severity ||
+                  taskFilter.severityName ||
+                  taskFilter.priority ||
+                  taskFilter.status ||
+                  taskFilter.assignee ||
+                  taskFilter.query ||
+                  taskFilter.title ||
+                  taskFilter.name ||
+                  taskFilter.all,
+                );
+
+                if (targets.length === 0 || parsed.status === 'NEEDS_INPUT' || (!hasExplicitTaskCodes && hasTaskFilter)) {
+                  if (!hasExplicitTaskCodes && hasTaskFilter) {
+                    parsed.targets = [];
+                    if (Array.isArray(parsed.queryPlan?.conditions)) {
+                      parsed.queryPlan.conditions = parsed.queryPlan.conditions.filter(
+                        (c: any) => c?.field !== 'code',
+                      );
+                    }
+                  }
+
                   const targetSpaceId = Number(
                     context?.task_space_id ||
                     context?.taskSpaceId ||
@@ -383,17 +406,21 @@ export class AiService {
                   // If no candidates found, inform the user directly instead of presenting an empty Dismiss button
                   if (!candidates.candidateTasks || candidates.candidateTasks.length === 0) {
                     const queryTerm = parsed.filter?.query || parsed.filter?.title || parsed.filter?.name || '';
+                    const sevTerm = parsed.filter?.severity || parsed.filter?.severityName || parsed.filter?.priority;
                     const notFoundMsg = queryTerm
                       ? `I could not find any task matching "${queryTerm}" in this space. Please check the task name or provide the task code (e.g. PTS-P8-T1).`
-                      : `No matching tasks found for the requested criteria in this space.`;
+                      : sevTerm
+                        ? `There are no ${sevTerm}-priority tasks matching your criteria in this space.`
+                        : `No matching tasks found for the requested criteria in this space.`;
                     this.push(`__FINAL__${notFoundMsg}\n\n`);
                     buffer = '';
                     return callback();
                   }
 
-                  // If user requested bulk mutation (all: true) OR exactly 1 candidate matched, prepare draft directly
+                  // If user requested bulk mutation (all: true or targetScope === 'all') OR exactly 1 candidate matched, prepare draft directly
                   const isSingleTaskMatch = candidates.candidateTasks?.length === 1;
-                  if ((parsed.filter?.all || isSingleTaskMatch) && candidates.candidateTasks?.length > 0) {
+                  const isBulkTask = parsed.filter?.all || parsed.queryPlan?.targetScope === 'all';
+                  if ((isBulkTask || isSingleTaskMatch) && candidates.candidateTasks?.length > 0) {
                     const batchTargets = candidates.candidateTasks.map((t: any) => t.code);
                     const mutationDraft = await taskMutationExecutor.prepareTaskMutationDraft(
                       { ...parsed, targets: batchTargets, status: 'READY' },
@@ -402,6 +429,12 @@ export class AiService {
                     );
 
                     if (mutationDraft.status === 'REFUSED') {
+                      this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                      buffer = '';
+                      return callback();
+                    }
+
+                    if (!mutationDraft.drafts || mutationDraft.drafts.length === 0) {
                       this.push(`__FINAL__${mutationDraft.summary}\n\n`);
                       buffer = '';
                       return callback();
@@ -439,7 +472,7 @@ export class AiService {
                     ],
                   };
 
-                  this.push(`__FINAL__${beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
+                  this.push(`__FINAL__${candidates.summary || beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
                   buffer = '';
                   return callback();
                 }
@@ -463,10 +496,7 @@ export class AiService {
                   return callback();
                 }
 
-                let displaySummary = beforeMarker.trim();
-                if (!displaySummary || /which\s+(?:task|ticket|item|one)s?\b/i.test(displaySummary)) {
-                  displaySummary = mutationDraft.summary;
-                }
+                let displaySummary = mutationDraft.summary || beforeMarker.trim();
                 if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
                   const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
                   displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
@@ -478,8 +508,36 @@ export class AiService {
               }
 
               // Ticket Mutation Logic
-              // If no explicit targets were specified, resolve candidate tickets and return options
-              if (targets.length === 0 || parsed.status === 'NEEDS_INPUT') {
+              // If no explicit targets were specified (or filter criteria are present without explicit codes), resolve candidate tickets from DB
+              const hasExplicitTicketCodes = msgTicketCodes.length > 0 || parsed.explicitTargets === true;
+              const ticketFilter = parsed.filter || {};
+              const hasTicketFilter = Boolean(
+                ticketFilter.severity ||
+                ticketFilter.severityName ||
+                ticketFilter.priority ||
+                ticketFilter.status ||
+                ticketFilter.assignee ||
+                ticketFilter.queue ||
+                ticketFilter.queueName ||
+                ticketFilter.dept ||
+                ticketFilter.ticketType ||
+                ticketFilter.type ||
+                ticketFilter.query ||
+                ticketFilter.title ||
+                ticketFilter.name ||
+                ticketFilter.all,
+              );
+
+              if (targets.length === 0 || parsed.status === 'NEEDS_INPUT' || (!hasExplicitTicketCodes && hasTicketFilter)) {
+                if (!hasExplicitTicketCodes && hasTicketFilter) {
+                  parsed.targets = [];
+                  if (Array.isArray(parsed.queryPlan?.conditions)) {
+                    parsed.queryPlan.conditions = parsed.queryPlan.conditions.filter(
+                      (c: any) => c?.field !== 'code',
+                    );
+                  }
+                }
+
                 const requestedSpaceId = Number(
                   context?.ticketSpaceId ||
                   context?.spaceId ||
@@ -500,10 +558,13 @@ export class AiService {
                   let notFoundMsg = `I could not find any tickets matching your criteria in this space.`;
                   const filter = parsed.filter || {};
                   const reqAssignee = filter.assignee;
+                  const reqSev = filter.severity || filter.severityName || filter.priority;
                   if (reqAssignee && ['unassigned', 'unassign', 'none', 'no one'].includes(String(reqAssignee).toLowerCase())) {
                     notFoundMsg = `There are currently no unassigned tickets in this space. All tickets have an assigned owner.`;
-                  } else if (filter.status && filter.severity) {
-                    notFoundMsg = `There are no ${filter.severity} priority ${filter.status} tickets in this space.`;
+                  } else if (filter.status && reqSev) {
+                    notFoundMsg = `There are no ${reqSev} priority ${filter.status} tickets in this space.`;
+                  } else if (reqSev) {
+                    notFoundMsg = `There are no ${reqSev}-priority tickets in this space.`;
                   } else if (filter.query) {
                     notFoundMsg = `I could not find any ticket matching "${filter.query}" in this space. Please verify the ticket name or code.`;
                   }
@@ -512,9 +573,10 @@ export class AiService {
                   return callback();
                 }
 
-                // If user requested bulk mutation (all: true) OR exactly 1 candidate matched, prepare draft directly
+                // If user requested bulk mutation (all: true or targetScope === 'all') OR exactly 1 candidate matched, prepare draft directly
                 const isSingleTicketMatch = candidates.candidateTickets?.length === 1;
-                if ((parsed.filter?.all || isSingleTicketMatch) && candidates.candidateTickets?.length > 0) {
+                const isBulkTicket = parsed.filter?.all || parsed.queryPlan?.targetScope === 'all';
+                if ((isBulkTicket || isSingleTicketMatch) && candidates.candidateTickets?.length > 0) {
                   const batchTargets = candidates.candidateTickets.map((t: any) => t.code);
                   const mutationDraft = await mutationExecutor.prepareTicketMutationDraft(
                     { ...parsed, targets: batchTargets, status: 'READY' },
@@ -523,7 +585,13 @@ export class AiService {
                     user,
                   );
 
-                  let displaySummary = mutationDraft.summary;
+                  if (!mutationDraft.drafts || mutationDraft.drafts.length === 0) {
+                    this.push(`__FINAL__${mutationDraft.summary}\n\n`);
+                    buffer = '';
+                    return callback();
+                  }
+
+                  let displaySummary = mutationDraft.summary || beforeMarker.trim();
                   if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
                     const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
                     displaySummary += '\n\n' + uniqueWarnings.join('\n\n');
@@ -554,7 +622,7 @@ export class AiService {
                   ],
                 };
 
-                this.push(`__FINAL__${beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
+                this.push(`__FINAL__${candidates.summary || beforeMarker.trim()}\n\n__DRAFT_PAYLOAD__${JSON.stringify(optionsPayload)}`);
                 buffer = '';
                 return callback();
               }
@@ -574,7 +642,7 @@ export class AiService {
                 return callback();
               }
 
-              let displaySummary = beforeMarker.trim();
+              let displaySummary = mutationDraft.summary || beforeMarker.trim();
               if (mutationDraft.warnings && mutationDraft.warnings.length > 0) {
                 const uniqueWarnings = Array.from(new Set(mutationDraft.warnings as string[]));
                 if (mutationDraft.allUnrecognized) {
