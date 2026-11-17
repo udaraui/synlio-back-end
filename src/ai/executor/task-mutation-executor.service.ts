@@ -550,7 +550,16 @@ export class TaskMutationExecutorService {
         f.assignee && String(f.assignee).trim().toLowerCase() !== 'unassigned'
           ? ` assigned to **${f.assignee}**`
           : '';
-      displaySummary = `I've prepared updates for **${preparedDrafts.length} ${filterPrefix}tasks**${assigneeSuffix}${changeClause}. Please review the proposed changes below.`;
+      let targetNoun = 'tasks';
+      if (f.hierarchyLevelName) {
+        const rawLvl = String(f.hierarchyLevelName).trim().toLowerCase();
+        targetNoun = rawLvl.endsWith('s') ? rawLvl : `${rawLvl}s`;
+      } else if (Number(f.hierarchyLevelPosition) === 1) {
+        targetNoun = 'root-level tasks';
+      } else if (f.hierarchyLevelPosition) {
+        targetNoun = `level-${f.hierarchyLevelPosition} tasks`;
+      }
+      displaySummary = `I've prepared updates for **${preparedDrafts.length} ${filterPrefix}${targetNoun}**${assigneeSuffix}${changeClause}. Please review the proposed changes below.`;
     }
 
     return {
@@ -585,13 +594,100 @@ export class TaskMutationExecutorService {
     }
 
     let hasSeverityJoin = false;
+    let hasParentFilterJoin = false;
     const severityFilter = filter.severity || filter.severityName || filter.priority;
     const query = filter.query || filter.title || filter.name || filter.search;
+    const queryPlan = mutationPayload.queryPlan;
+    const hasHierarchyCond = Boolean(
+      filter.hierarchyLevelName ||
+      filter.hierarchyLevelPosition ||
+      (Array.isArray(queryPlan?.conditions) &&
+        queryPlan.conditions.some((c: any) => c?.field === 'hierarchyLevelName' || c?.field === 'hierarchyLevelPosition')),
+    );
     const hasFilterCriteria = Boolean(
-      filter.status || filter.assignee || severityFilter || query || filter.all,
+      filter.status || filter.assignee || severityFilter || query || filter.all || hasHierarchyCond,
     );
 
-    const queryPlan = mutationPayload.queryPlan;
+    const spaceLevelConfigs: Array<{ id: number; name: string; sequence: number }> =
+      targetSpaceId && targetSpaceId !== 0 && hasHierarchyCond
+        ? await this.entityManager.query(
+            `SELECT "id", "name", "sequence" FROM task_space_hierarchy_level_config WHERE "taskSpaceId" = $1 ORDER BY "sequence" ASC`,
+            [targetSpaceId],
+          )
+        : [];
+
+    const normalizeLevel = (val: string) =>
+      String(val || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[-\s]+/g, '')
+        .replace(/ies$/, 'y')
+        .replace(/s$/, '');
+
+    const applyHierarchyFilter = (pos?: number | null, levelName?: string | null) => {
+      if (pos !== undefined && pos !== null && !isNaN(Number(pos))) {
+        const p = Number(pos);
+        const idx = Math.max(0, p - 1);
+        const targetCfg = spaceLevelConfigs[idx];
+        if (p === 1) {
+          if (targetCfg) {
+            qb.andWhere('(task.hierarchyLevelConfigId = :hlCfgId OR task.parentTaskId IS NULL)', {
+              hlCfgId: Number(targetCfg.id),
+            });
+          } else {
+            qb.andWhere('task.parentTaskId IS NULL');
+          }
+        } else if (p === 2) {
+          if (!hasParentFilterJoin) {
+            qb.leftJoin('task.parentTask', 'parentTaskFilter');
+            hasParentFilterJoin = true;
+          }
+          if (targetCfg) {
+            qb.andWhere(
+              '(task.hierarchyLevelConfigId = :hlCfgId OR task.hierarchyLevelSequence = :hlSeq OR (task.hierarchyLevelConfigId IS NULL AND parentTaskFilter.id IS NOT NULL AND parentTaskFilter.parentTaskId IS NULL))',
+              { hlCfgId: Number(targetCfg.id), hlSeq: Number(targetCfg.sequence) },
+            );
+          } else {
+            qb.andWhere('(parentTaskFilter.id IS NOT NULL AND parentTaskFilter.parentTaskId IS NULL)');
+          }
+        } else {
+          if (targetCfg) {
+            qb.andWhere('(task.hierarchyLevelConfigId = :hlCfgId OR task.hierarchyLevelSequence = :hlSeq)', {
+              hlCfgId: Number(targetCfg.id),
+              hlSeq: Number(targetCfg.sequence),
+            });
+          } else {
+            qb.andWhere('task.hierarchyLevelSequence = :hlPosSeq', { hlPosSeq: idx });
+          }
+        }
+      }
+
+      if (levelName && String(levelName).trim()) {
+        const targetNorm = normalizeLevel(String(levelName));
+        const matchedCfg =
+          spaceLevelConfigs.find((c) => normalizeLevel(c.name) === targetNorm) ||
+          spaceLevelConfigs.find((c) => normalizeLevel(c.name).includes(targetNorm) || targetNorm.includes(normalizeLevel(c.name)));
+
+        if (matchedCfg) {
+          const isRootCfg = spaceLevelConfigs[0] && Number(matchedCfg.id) === Number(spaceLevelConfigs[0].id);
+          if (isRootCfg) {
+            qb.andWhere(
+              '(task.hierarchyLevelConfigId = :hlNameCfgId OR LOWER(task.hierarchyLevelName) = LOWER(:hlNameVal) OR task.parentTaskId IS NULL)',
+              { hlNameCfgId: Number(matchedCfg.id), hlNameVal: matchedCfg.name },
+            );
+          } else {
+            qb.andWhere(
+              '(task.hierarchyLevelConfigId = :hlNameCfgId OR LOWER(task.hierarchyLevelName) = LOWER(:hlNameVal))',
+              { hlNameCfgId: Number(matchedCfg.id), hlNameVal: matchedCfg.name },
+            );
+          }
+        } else {
+          qb.andWhere('LOWER(task.hierarchyLevelName) LIKE LOWER(:hlNameLike)', {
+            hlNameLike: `%${String(levelName).trim()}%`,
+          });
+        }
+      }
+    };
     if (queryPlan?.conditions && Array.isArray(queryPlan.conditions) && queryPlan.conditions.length > 0) {
       // ── Semantic Query Plan Interpreter (AI Query Builder) ──
       for (const cond of queryPlan.conditions) {
@@ -658,6 +754,10 @@ export class TaskMutationExecutorService {
           } else {
             qb.andWhere('(LOWER(task.code) LIKE :q OR LOWER(task.name) LIKE :q)', { q: `%${q}%` });
           }
+        } else if (field === 'hierarchyLevelPosition') {
+          applyHierarchyFilter(Number(value), null);
+        } else if (field === 'hierarchyLevelName') {
+          applyHierarchyFilter(null, String(value));
         }
       }
     } else {
@@ -688,7 +788,16 @@ export class TaskMutationExecutorService {
       }
 
       if (filter.assignee) {
-        qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
+        const av = String(filter.assignee).trim().toLowerCase();
+        if (['unassigned', 'unassign', 'none', 'no one'].includes(av)) {
+          qb.andWhere('(task.assigneeId IS NULL OR task.assigneeName IS NULL OR task.assigneeName = :emptyStr)', { emptyStr: '' });
+        } else if (['me', 'myself', 'i', 'self'].includes(av)) {
+          const authEmail = (authUser?.email || '').trim().toLowerCase();
+          const authName = (authUser?.name || '').trim().toLowerCase();
+          qb.andWhere('(LOWER(task.assigneeEmail) = :authEmail OR LOWER(task.assigneeName) = :authName)', { authEmail, authName });
+        } else {
+          qb.andWhere('LOWER(task.assigneeName) LIKE LOWER(:assignee)', { assignee: `%${filter.assignee}%` });
+        }
       }
 
       // Filter by severity/priority if requested (e.g. "all low-priority tasks")
@@ -702,6 +811,10 @@ export class TaskMutationExecutorService {
           "LOWER(COALESCE(NULLIF(TRIM(taskSeverity.name), ''), task.severityName)) LIKE :severity",
           { severity: `%${sev}%` },
         );
+      }
+
+      if (filter.hierarchyLevelPosition || filter.hierarchyLevelName) {
+        applyHierarchyFilter(filter.hierarchyLevelPosition, filter.hierarchyLevelName);
       }
 
       if (query) {

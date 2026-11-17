@@ -376,6 +376,8 @@ export class AiService {
                   taskFilter.query ||
                   taskFilter.title ||
                   taskFilter.name ||
+                  taskFilter.hierarchyLevelName ||
+                  taskFilter.hierarchyLevelPosition ||
                   taskFilter.all,
                 );
 
@@ -407,10 +409,24 @@ export class AiService {
                   if (!candidates.candidateTasks || candidates.candidateTasks.length === 0) {
                     const queryTerm = parsed.filter?.query || parsed.filter?.title || parsed.filter?.name || '';
                     const sevTerm = parsed.filter?.severity || parsed.filter?.severityName || parsed.filter?.priority;
+                    const lvlName = parsed.filter?.hierarchyLevelName;
+                    const lvlPos = parsed.filter?.hierarchyLevelPosition;
+                    const asgTerm = parsed.filter?.assignee;
+                    const noun = lvlName
+                      ? `${String(lvlName).toLowerCase()}${String(lvlName).toLowerCase().endsWith('s') ? '' : 's'}`
+                      : Number(lvlPos) === 1
+                        ? 'root-level tasks'
+                        : lvlPos
+                          ? `level-${lvlPos} tasks`
+                          : 'tasks';
+                    const qualifierParts: string[] = [];
+                    if (asgTerm && String(asgTerm).toLowerCase() === 'unassigned') qualifierParts.push('unassigned');
+                    if (sevTerm) qualifierParts.push(`${sevTerm}-priority`);
+                    const qualStr = qualifierParts.length > 0 ? `${qualifierParts.join(' ')} ` : '';
                     const notFoundMsg = queryTerm
                       ? `I could not find any task matching "${queryTerm}" in this space. Please check the task name or provide the task code (e.g. PTS-P8-T1).`
-                      : sevTerm
-                        ? `There are no ${sevTerm}-priority tasks matching your criteria in this space.`
+                      : qualStr || lvlName || lvlPos
+                        ? `There are no ${qualStr}${noun} matching your criteria in this space.`
                         : `No matching tasks found for the requested criteria in this space.`;
                     this.push(`__FINAL__${notFoundMsg}\n\n`);
                     buffer = '';
