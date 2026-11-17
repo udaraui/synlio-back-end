@@ -978,11 +978,18 @@ export class TicketMutationExecutorService {
             qb.andWhere('UPPER(ticket.code) IN (:...codes)', { codes });
           }
         } else if (field === 'statusBase') {
+          const mapStatusBase = (v: any): string => {
+            const norm = String(v || '').trim().toUpperCase().replace(/[\s_-]+/g, '');
+            if (norm === 'TOSTART') return StatusBaseEnum.TOSTART;
+            if (norm === 'PROCESSING') return StatusBaseEnum.PROCESSING;
+            if (norm === 'FINISHED') return StatusBaseEnum.FINISHED;
+            return String(v);
+          };
           if (operator === 'in') {
-            const bases = Array.isArray(value) ? value : [value];
+            const bases = (Array.isArray(value) ? value : [value]).map(mapStatusBase);
             qb.andWhere('ticket.statusBase IN (:...bases)', { bases });
           } else if (operator === 'neq') {
-            qb.andWhere('ticket.statusBase != :baseVal', { baseVal: value });
+            qb.andWhere('ticket.statusBase != :baseVal', { baseVal: mapStatusBase(value) });
           }
         } else if (field === 'statusName' || field === 'status') {
           if (operator === 'not_in') {
