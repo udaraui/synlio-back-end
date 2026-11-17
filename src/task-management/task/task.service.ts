@@ -2229,6 +2229,11 @@ export class TmTaskService {
       dueDate: string | null;
       estimateEffort: number;
       actualEffort: number;
+      statusId?: number;
+      statusName?: string;
+      statusColor?: string;
+      statusBase?: string;
+      progressPercentage?: number;
     }>
   > {
     const startId =
@@ -2242,6 +2247,11 @@ export class TmTaskService {
       dueDate: string | null;
       estimateEffort: number;
       actualEffort: number;
+      statusId?: number;
+      statusName?: string;
+      statusColor?: string;
+      statusBase?: string;
+      progressPercentage?: number;
     }> = [];
 
     // Walk up the ancestor chain iteratively (no recursion → safe for deep trees).
@@ -2320,6 +2330,11 @@ export class TmTaskService {
            t."dueDate"::text AS "maxDue", 
            t."estimateEffort"::numeric AS "estimateEffort",
            t."actualEffort"::numeric AS "actualEffort",
+           t."statusId" AS "statusId",
+           t."statusName" AS "statusName",
+           t."statusColor" AS "statusColor",
+           t."statusBase" AS "statusBase",
+           t."progressPercentage" AS "progressPercentage",
            t."parentTaskId" AS "nextParentId"`,
         [
           currentId,
@@ -2341,6 +2356,11 @@ export class TmTaskService {
         dueDate: row.maxDue,
         estimateEffort: Number(row.estimateEffort) || 0,
         actualEffort: Number(row.actualEffort) || 0,
+        statusId: row.statusId != null ? Number(row.statusId) : undefined,
+        statusName: row.statusName ?? undefined,
+        statusColor: row.statusColor ?? undefined,
+        statusBase: row.statusBase ?? undefined,
+        progressPercentage: row.progressPercentage != null ? Number(row.progressPercentage) : undefined,
       });
 
       currentId = row.nextParentId != null ? Number(row.nextParentId) : null;

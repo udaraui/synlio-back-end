@@ -142,6 +142,7 @@ export class TaskMutationExecutorService {
       .leftJoinAndSelect('task.taskSpace', 'taskSpace')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.parentTask', 'parentTask')
+      .leftJoinAndSelect('parentTask.hierarchyLevelConfig', 'parentHierarchyLevelConfig')
       .leftJoinAndSelect('task.hierarchyLevelConfig', 'hierarchyLevelConfig')
       .where(
         '(UPPER(task.code) IN (:...targets) OR LOWER(task.name) IN (:...targetTitles) OR UPPER(task.code) LIKE ANY(ARRAY[:...partialTargets]))',
@@ -428,6 +429,11 @@ export class TaskMutationExecutorService {
         parentTaskAssigneeProfilePicUrl: task.parentTask?.assigneeProfilePicUrl,
         parentTaskStartDate: task.parentTask?.startDate,
         parentTaskDueDate: task.parentTask?.dueDate,
+        parentTaskHierarchyLevelConfigId: task.parentTask?.hierarchyLevelConfigId ?? (task.parentTask as any)?.hierarchyLevelConfig?.id,
+        parentTaskHierarchyLevelName: task.parentTask?.hierarchyLevelName || (task.parentTask as any)?.hierarchyLevelConfig?.name,
+        parentTaskHierarchyLevelIcon: task.parentTask?.hierarchyLevelIcon || (task.parentTask as any)?.hierarchyLevelConfig?.icon,
+        parentTaskHierarchyLevelColor: task.parentTask?.hierarchyLevelColor || (task.parentTask as any)?.hierarchyLevelConfig?.color,
+        parentTaskHierarchyLevelSequence: task.parentTask?.hierarchyLevelSequence ?? (task.parentTask as any)?.hierarchyLevelConfig?.sequence,
         hierarchyLevelConfigId: task.hierarchyLevelConfigId ?? task.hierarchyLevelConfig?.id,
         hierarchyLevelName: task.hierarchyLevelName || task.hierarchyLevelConfig?.name,
         hierarchyLevelColor: task.hierarchyLevelColor || task.hierarchyLevelConfig?.color,
