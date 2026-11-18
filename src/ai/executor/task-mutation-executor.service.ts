@@ -236,26 +236,63 @@ export class TaskMutationExecutorService {
     }
 
     const preparedDrafts: any[] = [];
+    const statusRefusedCodes: string[] = [];
+    const dateRefusedCodes: string[] = [];
+
+    // Batch-check child tasks & child scheduled dates for rollup protection
+    const taskIds = tasks.map((t) => t.id);
+    const childStatsByParentId = new Map<number, { hasChildren: boolean; hasChildrenWithDates: boolean }>();
+    if (taskIds.length > 0) {
+      const allChildren = await this.entityManager
+        .createQueryBuilder(Task, 'child')
+        .select(['child.id', 'child.parentTaskId', 'child.startDate', 'child.dueDate'])
+        .where('child.parentTaskId IN (:...taskIds)', { taskIds })
+        .getMany();
+
+      for (const child of allChildren) {
+        const pid = Number(child.parentTaskId);
+        if (!pid) continue;
+        const existing = childStatsByParentId.get(pid) || { hasChildren: false, hasChildrenWithDates: false };
+        existing.hasChildren = true;
+        const hasStart = Boolean(
+          child.startDate && String(child.startDate).trim() !== '' && !isNaN(new Date(child.startDate).getTime()),
+        );
+        const hasDue = Boolean(
+          child.dueDate && String(child.dueDate).trim() !== '' && !isNaN(new Date(child.dueDate).getTime()),
+        );
+        if (hasStart || hasDue) {
+          existing.hasChildrenWithDates = true;
+        }
+        childStatsByParentId.set(pid, existing);
+      }
+    }
 
     for (const task of tasks) {
       const spaceId = task.taskSpaceId;
+      const childStats = childStatsByParentId.get(Number(task.id)) || { hasChildren: false, hasChildrenWithDates: false };
 
-      // 1. Resolve Target Status
+      // 1. Resolve Target Status (with Child Rollup Protection)
       let resolvedStatusId: number | undefined;
       let resolvedStatusName: string | undefined;
       let resolvedStatusColor: string | undefined;
+      let statusChangeRefusedReason: string | null = null;
 
       if (changes.statusName) {
-        const statuses = await this.entityManager.find(TaskSpaceStatusConfig, {
-          where: { taskSpaceId: spaceId },
-        });
-        const matched = resolveSpaceStatus(statuses, changes.statusName);
-        if (matched) {
-          resolvedStatusId = matched.id;
-          resolvedStatusName = matched.name;
-          resolvedStatusColor = matched.color;
+        if (childStats.hasChildren) {
+          statusChangeRefusedReason = `Cannot change status for **${task.code}** because it has child tasks and its status rolls up automatically from its children.`;
+          statusRefusedCodes.push(task.code);
         } else {
-          warnings.push(`Status "${changes.statusName}" was not recognized in space "${task.taskSpaceName}".`);
+          const statuses = await this.entityManager.find(TaskSpaceStatusConfig, {
+            where: { taskSpaceId: spaceId },
+          });
+          const matched = resolveSpaceStatus(statuses, changes.statusName);
+          if (matched) {
+            resolvedStatusId = matched.id;
+            resolvedStatusName = matched.name;
+            resolvedStatusColor = matched.color;
+          } else {
+            warnings.push(`Status "${changes.statusName}" was not recognized in space "${task.taskSpaceName}".`);
+          }
         }
       }
 
@@ -378,34 +415,25 @@ export class TaskMutationExecutorService {
       let resolvedEffort = changes.estimateEffort ? parseFloat(String(changes.estimateEffort)) : undefined;
 
       let dateChangeRefusedReason: string | null = null;
-      if (resolvedStartDate || resolvedDueDate) {
-        // Query child tasks under this task to see if it has children and whether any child has scheduled dates
-        const childTasks = await this.entityManager
-          .createQueryBuilder(Task, 'child')
-          .where('child.parentTaskId = :taskId', { taskId: task.id })
-          .getMany();
-
-        if (childTasks.length > 0) {
-          const childrenWithDates = childTasks.filter(
-            (c) =>
-              (c.startDate && String(c.startDate).trim() !== '' && !isNaN(new Date(c.startDate).getTime())) ||
-              (c.dueDate && String(c.dueDate).trim() !== '' && !isNaN(new Date(c.dueDate).getTime())),
-          );
-
-          if (childrenWithDates.length > 0) {
-            // Task has children AND at least one child has start or due dates scheduled!
-            // Dates roll up automatically from children -> refuse modifying start / due date!
-            dateChangeRefusedReason = `Cannot change start or due date for **${task.code}** (${task.name}) because its dates roll up automatically from child tasks that have scheduled dates. To change this schedule, please update the child tasks directly.`;
-            warnings.push(dateChangeRefusedReason);
-            resolvedStartDate = task.startDate;
-            resolvedDueDate = task.dueDate;
-          }
-        }
+      const hasDateChangeRequested = Boolean(
+        resolvedStartDate ||
+        resolvedDueDate ||
+        changes.startDateOffsetDays !== undefined ||
+        changes.dueDateOffsetDays !== undefined,
+      );
+      if (hasDateChangeRequested && childStats.hasChildrenWithDates) {
+        // Task has children AND at least one child has start or due dates scheduled!
+        // Dates roll up automatically from children -> refuse modifying start / due date!
+        dateChangeRefusedReason = `Cannot change start or due date for **${task.code}** because its dates roll up automatically from child tasks that have scheduled dates.`;
+        dateRefusedCodes.push(task.code);
+        resolvedStartDate = task.startDate;
+        resolvedDueDate = task.dueDate;
       }
 
-      // Check if other fields were requested
-      const otherChangesRequested = Boolean(
-        changes.statusName ||
+      // Check if any allowed change remains for this task
+      const hasAllowedChange = Boolean(
+        (changes.statusName && !statusChangeRefusedReason) ||
+        (hasDateChangeRequested && !dateChangeRefusedReason) ||
         changes.severityName ||
         changes.assigneeName ||
         changes.assignee ||
@@ -414,15 +442,8 @@ export class TaskMutationExecutorService {
         changes.estimateEffort,
       );
 
-      if (dateChangeRefusedReason && !otherChangesRequested && tasks.length === 1) {
-        return {
-          action: 'UPDATE_TASK',
-          entityType: 'task',
-          status: 'REFUSED',
-          summary: dateChangeRefusedReason,
-          drafts: [],
-          warnings: [dateChangeRefusedReason],
-        };
+      if ((statusChangeRefusedReason || dateChangeRefusedReason) && !hasAllowedChange) {
+        continue;
       }
 
       preparedDrafts.push({
@@ -456,6 +477,8 @@ export class TaskMutationExecutorService {
         hierarchyLevelColor: task.hierarchyLevelColor || task.hierarchyLevelConfig?.color,
         hierarchyLevelIcon: task.hierarchyLevelIcon || task.hierarchyLevelConfig?.icon,
         hierarchyLevelSequence: task.hierarchyLevelSequence ?? task.hierarchyLevelConfig?.sequence,
+        hasChildren: childStats.hasChildren,
+        hasChildrenWithDates: childStats.hasChildrenWithDates,
         statusId: resolvedStatusId ?? task.statusId,
         statusName: resolvedStatusName ?? task.statusName,
         statusColor: resolvedStatusColor ?? task.statusColor,
@@ -499,6 +522,45 @@ export class TaskMutationExecutorService {
           estimateEffort: resolvedEffort ?? task.estimateEffort,
         },
       });
+    }
+
+    const formatRefusedCodes = (codes: string[]) =>
+      Array.from(new Set(codes)).map((c) => `**${c}**`).join(', ');
+
+    const combinedRefusalMessages: string[] = [];
+    if (statusRefusedCodes.length === 1) {
+      combinedRefusalMessages.push(
+        `Cannot change status for ${formatRefusedCodes(statusRefusedCodes)} because it has child tasks and its status rolls up automatically from its children. Please update its child tasks directly.`,
+      );
+    } else if (statusRefusedCodes.length > 1) {
+      combinedRefusalMessages.push(
+        `Cannot change status for ${formatRefusedCodes(statusRefusedCodes)} because they have child tasks and their status rolls up automatically from their children. Please update their child tasks directly.`,
+      );
+    }
+
+    if (dateRefusedCodes.length === 1) {
+      combinedRefusalMessages.push(
+        `Cannot change start or due date for ${formatRefusedCodes(dateRefusedCodes)} because its dates roll up automatically from child tasks that have scheduled dates. Please update its child tasks directly.`,
+      );
+    } else if (dateRefusedCodes.length > 1) {
+      combinedRefusalMessages.push(
+        `Cannot change start or due date for ${formatRefusedCodes(dateRefusedCodes)} because their dates roll up automatically from child tasks that have scheduled dates. Please update their child tasks directly.`,
+      );
+    }
+
+    if (combinedRefusalMessages.length > 0) {
+      warnings.push(...combinedRefusalMessages);
+    }
+
+    if (preparedDrafts.length === 0 && combinedRefusalMessages.length > 0) {
+      return {
+        action: 'UPDATE_TASK',
+        entityType: 'task',
+        status: 'REFUSED',
+        summary: combinedRefusalMessages.join('\n\n'),
+        drafts: [],
+        warnings: Array.from(new Set(warnings)),
+      };
     }
 
     const changeSummaryParts: string[] = [];
@@ -604,8 +666,13 @@ export class TaskMutationExecutorService {
       (Array.isArray(queryPlan?.conditions) &&
         queryPlan.conditions.some((c: any) => c?.field === 'hierarchyLevelName' || c?.field === 'hierarchyLevelPosition')),
     );
+    const hasCodeRangeFilter =
+      filter.codeRangeStart !== undefined &&
+      filter.codeRangeStart !== null &&
+      filter.codeRangeEnd !== undefined &&
+      filter.codeRangeEnd !== null;
     const hasFilterCriteria = Boolean(
-      filter.status || filter.assignee || severityFilter || query || filter.all || hasHierarchyCond,
+      hasCodeRangeFilter || filter.status || filter.assignee || severityFilter || query || filter.all || hasHierarchyCond,
     );
 
     const spaceLevelConfigs: Array<{ id: number; name: string; sequence: number }> =
@@ -765,6 +832,28 @@ export class TaskMutationExecutorService {
           applyHierarchyFilter(Number(value), null);
         } else if (field === 'hierarchyLevelName') {
           applyHierarchyFilter(null, String(value));
+        } else if (field === 'codeRange' && value && typeof value === 'object') {
+          const rangeStart = Number(value.start);
+          const rangeEnd = Number(value.end);
+          if (!Number.isNaN(rangeStart) && !Number.isNaN(rangeEnd)) {
+            const minNum = Math.min(rangeStart, rangeEnd);
+            const maxNum = Math.max(rangeStart, rangeEnd);
+            if (value.prefix) {
+              const rawPrefix = String(value.prefix).replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+              const prefixRegex = rawPrefix.includes('-')
+                ? `^${rawPrefix}[0-9]+$`
+                : `^${rawPrefix}-[A-Za-z]*[0-9]+$`;
+              qb.andWhere('UPPER(task.code) ~ :codeRangePrefixRegex', {
+                codeRangePrefixRegex: prefixRegex,
+              });
+            } else {
+              qb.andWhere("task.code ~ '[0-9]+$'");
+            }
+            qb.andWhere("CAST(SUBSTRING(task.code FROM '([0-9]+)$') AS INT) BETWEEN :rangeStart AND :rangeEnd", {
+              rangeStart: minNum,
+              rangeEnd: maxNum,
+            });
+          }
         }
       }
     } else {
@@ -822,6 +911,18 @@ export class TaskMutationExecutorService {
 
       if (filter.hierarchyLevelPosition || filter.hierarchyLevelName) {
         applyHierarchyFilter(filter.hierarchyLevelPosition, filter.hierarchyLevelName);
+      }
+
+      if (hasCodeRangeFilter) {
+        const minNum = Math.min(Number(filter.codeRangeStart), Number(filter.codeRangeEnd));
+        const maxNum = Math.max(Number(filter.codeRangeStart), Number(filter.codeRangeEnd));
+        if (!Number.isNaN(minNum) && !Number.isNaN(maxNum)) {
+          qb.andWhere("task.code ~ '[0-9]+$'");
+          qb.andWhere("CAST(SUBSTRING(task.code FROM '([0-9]+)$') AS INT) BETWEEN :rangeStart AND :rangeEnd", {
+            rangeStart: minNum,
+            rangeEnd: maxNum,
+          });
+        }
       }
 
       if (query) {

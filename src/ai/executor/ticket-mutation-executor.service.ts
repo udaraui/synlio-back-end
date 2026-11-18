@@ -961,8 +961,13 @@ export class TicketMutationExecutorService {
     const queueFilter = filter.queue || filter.queueName || filter.dept;
     const typeFilter = filter.ticketType || filter.type;
     const query = filter.query || filter.title || filter.name || filter.search;
+    const hasCodeRangeFilter =
+      filter.codeRangeStart !== undefined &&
+      filter.codeRangeStart !== null &&
+      filter.codeRangeEnd !== undefined &&
+      filter.codeRangeEnd !== null;
     const hasFilterCriteria = Boolean(
-      filter.status || requestedAssignee || severityFilter || queueFilter || typeFilter || query || filter.all,
+      hasCodeRangeFilter || filter.status || requestedAssignee || severityFilter || queueFilter || typeFilter || query || filter.all,
     );
 
     const queryPlan = mutationPayload.queryPlan;
@@ -1044,6 +1049,25 @@ export class TicketMutationExecutorService {
         } else if (field === 'name' || field === 'query' || field === 'title') {
           const q = String(value).trim().toLowerCase();
           qb.andWhere('(LOWER(ticket.code) LIKE :q OR LOWER(ticket.name) LIKE :q)', { q: `%${q}%` });
+        } else if (field === 'codeRange' && value && typeof value === 'object') {
+          const rangeStart = Number(value.start);
+          const rangeEnd = Number(value.end);
+          if (!Number.isNaN(rangeStart) && !Number.isNaN(rangeEnd)) {
+            const minNum = Math.min(rangeStart, rangeEnd);
+            const maxNum = Math.max(rangeStart, rangeEnd);
+            if (value.prefix) {
+              const prefixRegex = `^${String(value.prefix).replace(/[^A-Za-z0-9]/g, '')}-[0-9]+$`;
+              qb.andWhere('UPPER(ticket.code) ~ :codeRangePrefixRegex', {
+                codeRangePrefixRegex: prefixRegex.toUpperCase(),
+              });
+            } else {
+              qb.andWhere("ticket.code ~ '-[0-9]+$'");
+            }
+            qb.andWhere("CAST(SUBSTRING(ticket.code FROM '-([0-9]+)$') AS INT) BETWEEN :rangeStart AND :rangeEnd", {
+              rangeStart: minNum,
+              rangeEnd: maxNum,
+            });
+          }
         }
       }
     } else {
@@ -1137,6 +1161,18 @@ export class TicketMutationExecutorService {
           "LOWER(COALESCE(NULLIF(TRIM(ticketSeverity.name), ''), ticket.severityName)) LIKE :sev",
           { sev: `%${sev}%` },
         );
+      }
+
+      if (hasCodeRangeFilter) {
+        const minNum = Math.min(Number(filter.codeRangeStart), Number(filter.codeRangeEnd));
+        const maxNum = Math.max(Number(filter.codeRangeStart), Number(filter.codeRangeEnd));
+        if (!Number.isNaN(minNum) && !Number.isNaN(maxNum)) {
+          qb.andWhere("ticket.code ~ '-[0-9]+$'");
+          qb.andWhere("CAST(SUBSTRING(ticket.code FROM '-([0-9]+)$') AS INT) BETWEEN :rangeStart AND :rangeEnd", {
+            rangeStart: minNum,
+            rangeEnd: maxNum,
+          });
+        }
       }
     }
 

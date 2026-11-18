@@ -365,9 +365,15 @@ export class AiService {
 
               if (isTaskMutation) {
                 // Task Mutation Logic
-                const hasExplicitTaskCodes = msgTaskCodes.length > 0 || parsed.explicitTargets === true;
                 const taskFilter = parsed.filter || {};
+                const hasTaskCodeRange =
+                  taskFilter.codeRangeStart !== undefined &&
+                  taskFilter.codeRangeStart !== null &&
+                  taskFilter.codeRangeEnd !== undefined &&
+                  taskFilter.codeRangeEnd !== null;
+                const hasExplicitTaskCodes = !hasTaskCodeRange && (msgTaskCodes.length > 0 || parsed.explicitTargets === true);
                 const hasTaskFilter = Boolean(
+                  hasTaskCodeRange ||
                   taskFilter.severity ||
                   taskFilter.severityName ||
                   taskFilter.priority ||
@@ -525,9 +531,15 @@ export class AiService {
 
               // Ticket Mutation Logic
               // If no explicit targets were specified (or filter criteria are present without explicit codes), resolve candidate tickets from DB
-              const hasExplicitTicketCodes = msgTicketCodes.length > 0 || parsed.explicitTargets === true;
               const ticketFilter = parsed.filter || {};
+              const hasTicketCodeRange =
+                ticketFilter.codeRangeStart !== undefined &&
+                ticketFilter.codeRangeStart !== null &&
+                ticketFilter.codeRangeEnd !== undefined &&
+                ticketFilter.codeRangeEnd !== null;
+              const hasExplicitTicketCodes = !hasTicketCodeRange && (msgTicketCodes.length > 0 || parsed.explicitTargets === true);
               const hasTicketFilter = Boolean(
+                hasTicketCodeRange ||
                 ticketFilter.severity ||
                 ticketFilter.severityName ||
                 ticketFilter.priority ||
