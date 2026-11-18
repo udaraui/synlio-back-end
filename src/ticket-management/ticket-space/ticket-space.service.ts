@@ -52,13 +52,13 @@ export class TicketSpaceService implements OnModuleInit {
         select: ['id'],
       });
       console.log(
-        `STARTING - Redis cache seeding for ${spaces.length} ticket spaces...`,
+        `STARTING - Redis cache seeding for ${spaces.length} ticket space configs...`,
       );
       for (const space of spaces) {
         await this.seedSingleTicketSpaceCache(space.id!);
       }
       console.log(
-        `FINISHED - Redis cache seeding for ${spaces.length} ticket spaces.`,
+        `FINISHED - Redis cache seeding for ${spaces.length} ticket space configs.`,
       );
 
       await this.seedAllTicketSpaceMemberships();
@@ -214,7 +214,7 @@ export class TicketSpaceService implements OnModuleInit {
         userMap.get(row.userId)!.add(row.ticketSpaceId);
       }
 
-      console.log(`STARTING - Redis cache seeding for ${rows.length} ticket space memberships`);
+      console.log(`STARTING - Redis cache seeding for ${rows.length} ticket space memberships...`);
       for (const [userId, spaceIds] of userMap.entries()) {
         await this.redisService.setTicketSpaceMemberships(userId, Array.from(spaceIds));
       }

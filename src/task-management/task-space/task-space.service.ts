@@ -49,13 +49,13 @@ export class TaskSpaceService implements OnModuleInit {
         select: ['id'],
       });
       console.log(
-        `STARTING - Redis cache seeding for ${spaces.length} task spaces...`,
+        `STARTING - Redis cache seeding for ${spaces.length} task space configs...`,
       );
       for (const space of spaces) {
         await this.seedSingleTaskSpaceCache(space.id!);
       }
       console.log(
-        `FINISHED - Redis cache seeding for ${spaces.length} task spaces.`,
+        `FINISHED - Redis cache seeding for ${spaces.length} task space configs.`,
       );
       
       await this.seedAllSpaceMemberships();
@@ -2015,7 +2015,7 @@ export class TaskSpaceService implements OnModuleInit {
       const results = await this.entityManager.query(queryStr);
 
       console.log(
-        `STARTING - Redis cache seeding for ${results.length} task space memberships`,
+        `STARTING - Redis cache seeding for ${results.length} task space memberships...`,
       );
 
       // cacheMap structure: key -> field -> visibilityDict (Record<number, number[]>)

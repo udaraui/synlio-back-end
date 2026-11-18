@@ -415,11 +415,12 @@ export class TaskMutationExecutorService {
       let resolvedEffort = changes.estimateEffort ? parseFloat(String(changes.estimateEffort)) : undefined;
 
       let dateChangeRefusedReason: string | null = null;
+      const hasNonEmpty = (v: any) => v !== undefined && v !== null && String(v).trim() !== '';
       const hasDateChangeRequested = Boolean(
-        resolvedStartDate ||
-        resolvedDueDate ||
-        changes.startDateOffsetDays !== undefined ||
-        changes.dueDateOffsetDays !== undefined,
+        hasNonEmpty(resolvedStartDate) ||
+        hasNonEmpty(resolvedDueDate) ||
+        hasNonEmpty(changes.startDateOffsetDays) ||
+        hasNonEmpty(changes.dueDateOffsetDays),
       );
       if (hasDateChangeRequested && childStats.hasChildrenWithDates) {
         // Task has children AND at least one child has start or due dates scheduled!
@@ -430,19 +431,30 @@ export class TaskMutationExecutorService {
         resolvedDueDate = task.dueDate;
       }
 
-      // Check if any allowed change remains for this task
+      // Check if any allowed change remains AND actually differs from the task's current values
       const hasAllowedChange = Boolean(
-        (changes.statusName && !statusChangeRefusedReason) ||
+        (hasNonEmpty(changes.statusName) && !statusChangeRefusedReason) ||
         (hasDateChangeRequested && !dateChangeRefusedReason) ||
-        changes.severityName ||
-        changes.assigneeName ||
-        changes.assignee ||
-        changes.name ||
-        changes.description ||
-        changes.estimateEffort,
+        hasNonEmpty(changes.severityName) ||
+        hasNonEmpty(changes.assigneeName) ||
+        hasNonEmpty(changes.assignee) ||
+        hasNonEmpty(changes.name) ||
+        hasNonEmpty(changes.description) ||
+        hasNonEmpty(changes.estimateEffort),
       );
 
-      if ((statusChangeRefusedReason || dateChangeRefusedReason) && !hasAllowedChange) {
+      const hasActualFieldChange = Boolean(
+        (resolvedStatusId !== undefined && resolvedStatusId !== task.statusId) ||
+        (resolvedSeverityId !== undefined && resolvedSeverityId !== task.severityId) ||
+        (resolvedAssigneeId !== undefined && resolvedAssigneeId !== task.assigneeId) ||
+        (hasNonEmpty(resolvedStartDate) && String(resolvedStartDate) !== String(task.startDate || '')) ||
+        (hasNonEmpty(resolvedDueDate) && String(resolvedDueDate) !== String(task.dueDate || '')) ||
+        (hasNonEmpty(changes.name) && String(changes.name).trim() !== String(task.name || '').trim()) ||
+        (hasNonEmpty(changes.description) && String(changes.description).trim() !== String((task as any).description || '').trim()) ||
+        (resolvedEffort !== undefined && resolvedEffort !== task.estimateEffort),
+      );
+
+      if ((statusChangeRefusedReason || dateChangeRefusedReason) && (!hasAllowedChange || !hasActualFieldChange)) {
         continue;
       }
 
@@ -524,43 +536,48 @@ export class TaskMutationExecutorService {
       });
     }
 
-    const formatRefusedCodes = (codes: string[]) =>
-      Array.from(new Set(codes)).map((c) => `**${c}**`).join(', ');
+    const uniqueStatusCodes = Array.from(new Set(statusRefusedCodes));
+    const uniqueDateCodes = Array.from(new Set(dateRefusedCodes));
+    const formatRefusedCodes = (codes: string[]) => codes.map((c) => `**${c}**`).join(', ');
 
-    const combinedRefusalMessages: string[] = [];
-    if (statusRefusedCodes.length === 1) {
-      combinedRefusalMessages.push(
-        `Cannot change status for ${formatRefusedCodes(statusRefusedCodes)} because it has child tasks and its status rolls up automatically from its children. Please update its child tasks directly.`,
-      );
-    } else if (statusRefusedCodes.length > 1) {
-      combinedRefusalMessages.push(
-        `Cannot change status for ${formatRefusedCodes(statusRefusedCodes)} because they have child tasks and their status rolls up automatically from their children. Please update their child tasks directly.`,
-      );
-    }
-
-    if (dateRefusedCodes.length === 1) {
-      combinedRefusalMessages.push(
-        `Cannot change start or due date for ${formatRefusedCodes(dateRefusedCodes)} because its dates roll up automatically from child tasks that have scheduled dates. Please update its child tasks directly.`,
-      );
-    } else if (dateRefusedCodes.length > 1) {
-      combinedRefusalMessages.push(
-        `Cannot change start or due date for ${formatRefusedCodes(dateRefusedCodes)} because their dates roll up automatically from child tasks that have scheduled dates. Please update their child tasks directly.`,
-      );
-    }
-
-    if (combinedRefusalMessages.length > 0) {
-      warnings.push(...combinedRefusalMessages);
-    }
-
-    if (preparedDrafts.length === 0 && combinedRefusalMessages.length > 0) {
+    if (preparedDrafts.length === 0 && (uniqueStatusCodes.length > 0 || uniqueDateCodes.length > 0)) {
+      const refusalSections: string[] = [];
+      if (uniqueStatusCodes.length > 0) {
+        const firstCode = uniqueStatusCodes[0];
+        const plural = uniqueStatusCodes.length > 1;
+        refusalSections.push(
+          `**Cannot update status for** ${formatRefusedCodes(uniqueStatusCodes)}. ${plural ? 'These tasks have' : 'This task has'} child tasks, so ${plural ? 'their' : 'its'} status rolls up automatically from ${plural ? 'their' : 'its'} children.\n` +
+          `Tip: Ask \`"move children of ${firstCode} to ..."\` to update ${plural ? 'their' : 'its'} child tasks directly.`,
+        );
+      }
+      if (uniqueDateCodes.length > 0) {
+        const plural = uniqueDateCodes.length > 1;
+        refusalSections.push(
+          `**Cannot update dates for** ${formatRefusedCodes(uniqueDateCodes)}. ${plural ? 'These tasks have' : 'This task has'} child tasks with scheduled dates, so ${plural ? 'their' : 'its'} dates roll up automatically.\n` +
+          `Tip: Update ${plural ? 'their' : 'its'} child tasks directly to change the schedule.`,
+        );
+      }
       return {
         action: 'UPDATE_TASK',
         entityType: 'task',
         status: 'REFUSED',
-        summary: combinedRefusalMessages.join('\n\n'),
+        summary: refusalSections.join('\n\n'),
         drafts: [],
-        warnings: Array.from(new Set(warnings)),
+        warnings: Array.from(new Set([...warnings, ...refusalSections])),
       };
+    }
+
+    if (uniqueStatusCodes.length > 0) {
+      const n = uniqueStatusCodes.length;
+      warnings.push(
+        `**Skipped ${n} parent task${n > 1 ? 's' : ''}** (${formatRefusedCodes(uniqueStatusCodes)}) — status rolls up automatically from child tasks. Update their child tasks directly if needed.`,
+      );
+    }
+    if (uniqueDateCodes.length > 0) {
+      const n = uniqueDateCodes.length;
+      warnings.push(
+        `**Skipped ${n} parent task${n > 1 ? 's' : ''}** (${formatRefusedCodes(uniqueDateCodes)}) — dates roll up automatically from child tasks with scheduled dates.`,
+      );
     }
 
     const changeSummaryParts: string[] = [];
